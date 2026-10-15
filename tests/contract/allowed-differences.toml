@@ -1442,6 +1442,12 @@ difference = "Documented pod shape: release reports what it closed and what it l
 
 [[allow]]
 command = "worker-release"
+path = "$.closedWorkspaces"
+kind = "extra"
+difference = "Documented pod shape: release also closes the spaces herdr opened for the placement and lists them (spec 7.2, commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
 path = "$.closedTabs"
 kind = "extra"
 difference = "Documented pod shape: release reports what it closed and what it left alone and why (spec 7.4, commands-workers.md)"

@@ -1304,6 +1304,9 @@ impl Herdr for MinimalHerdr {
     fn workspace_get(&self, _: &str) -> Result<Option<WorkspaceInfo>> {
         self.unsupported()
     }
+    fn workspace_close(&self, _: &str) -> Result<()> {
+        self.unsupported()
+    }
     fn workspace_for_folder(&self, _: &Path) -> Result<Option<String>> {
         self.unsupported()
     }

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `pod status` lists `workers.reclaimable`, the finished workers nobody has released, each with its `nextAction`.
+
+### Changed
+
+- Acknowledging a `worker_done` (`check --ack`, with or without `--wait`) releases its worker, and `check --wait` still releases every acknowledged one before it blocks. A worker retained before the acknowledgement keeps its pane. Every check receipt that acknowledged something carries `released`. 41 workers were released by hand in one session on 2026-10-15, because the wait-time sweep never ran before the coordinator released by hand.
+- Config `release_on_wait` is now `auto_release`; `release_on_wait` is still accepted as an alias.
+
+### Fixed
+
+- The parent space, and its idle shell, that a `path:` or new worktree placement made herdr open are closed on release, as is the worktree's own space when herdr opened it, each only while it holds one tab, one pane, no agent, and no other pod worker. Release receipts carry `closedWorkspaces`, and `worker.released` records `closed_workspaces`.
+
 ## [0.2.7] - 2026-10-15
 
 ### Added

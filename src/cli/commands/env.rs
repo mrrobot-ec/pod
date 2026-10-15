@@ -172,7 +172,19 @@ fn workers_summary(ctx: &Ctx, run: &crate::ids::RunId) -> Option<serde_json::Val
             }))
         })
         .collect();
-    Some(serde_json::json!({"counts": list.counts, "stalled": stalled}))
+    let reclaimable: Vec<serde_json::Value> = list
+        .workers
+        .iter()
+        .filter(|view| view.worker.terminal_state == "reclaimable")
+        .map(|view| {
+            serde_json::json!({
+                "dispatchId": view.dispatch.id,
+                "handle": view.dispatch.assignee_handle,
+                "nextAction": view.projection.next_action,
+            })
+        })
+        .collect();
+    Some(serde_json::json!({"counts": list.counts, "stalled": stalled, "reclaimable": reclaimable}))
 }
 
 pub fn doctor(ctx: &Ctx) -> Result<()> {

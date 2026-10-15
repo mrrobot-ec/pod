@@ -42,9 +42,11 @@ pub struct Defaults {
     pub nested_depth_max: u32,
     pub heartbeat_minutes: u64,
     pub ask_timeout_ms: u64,
-    /// `check --wait` first releases every worker whose `worker_done` the
-    /// coordinator has acknowledged (spec 7.4), closing the tab pod created.
-    pub release_on_wait: bool,
+    /// Acknowledging a `worker_done` releases its worker, and `check --wait`
+    /// first releases every acknowledged one (spec 7.4), closing the tab pod
+    /// created. `release_on_wait` is the 0.2.7 name of the same switch.
+    #[serde(alias = "release_on_wait")]
+    pub auto_release: bool,
 }
 
 impl Default for Defaults {
@@ -53,7 +55,7 @@ impl Default for Defaults {
             nested_depth_max: 1,
             heartbeat_minutes: 5,
             ask_timeout_ms: 600_000,
-            release_on_wait: true,
+            auto_release: true,
         }
     }
 }

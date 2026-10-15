@@ -61,6 +61,17 @@ pub fn get(tx: &Tx<'_>, id: &DispatchId) -> Result<Option<WorkerRow>> {
         .optional()?)
 }
 
+/// Whether any worker other than `except` still holds a pane in
+/// `workspace_id`: active, retained, or finished but not yet released.
+pub fn live_in_workspace(tx: &Tx<'_>, workspace_id: &str, except: &DispatchId) -> Result<bool> {
+    let count: i64 = tx.0.query_row(
+        "SELECT COUNT(*) FROM workers WHERE workspace_id = ?1 AND dispatch_id != ?2 AND terminal_state IN ('active','retained','reclaimable','release_pending','release_unknown')",
+        [workspace_id, except.as_str()],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 pub fn list(tx: &Tx<'_>, limit: usize) -> Result<Vec<WorkerRow>> {
     let mut statement = tx.0.prepare(&format!(
         "SELECT {COLUMNS} FROM workers ORDER BY created_at DESC, rowid DESC LIMIT ?1"

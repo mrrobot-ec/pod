@@ -212,6 +212,10 @@ pub struct WorkerReceipt {
     pub worker: workers::WorkerRow,
     pub closed_panes: Vec<String>,
     pub closed_tabs: Vec<String>,
+    /// The spaces herdr had opened for the placement that release closed
+    /// again, each left with only the shell herdr gave it.
+    #[serde(default)]
+    pub closed_workspaces: Vec<String>,
     pub left_alone: Vec<String>,
     pub archive: Archive,
     pub outcome: String,
@@ -536,6 +540,9 @@ fn start_stages(
     if placement.repo.is_some() {
         effects.push("worktree_created".into());
     }
+    for workspace in &placement.opened_workspaces {
+        effects.push(format!("workspace_opened:{workspace}"));
+    }
     store_effects(engine, dispatch, &effects).at("placement", false)?;
     let timeout_ms = ctx.input.timeout_ms.unwrap_or(DEFAULT_START_TIMEOUT_MS);
     let repo_config = placement
@@ -818,6 +825,13 @@ fn effects_of(worker: &workers::WorkerRow, setup: &mut SetupReport) -> Vec<Effec
         {
             effects.push(effect("pane", action, Some(pane), None));
         }
+    }
+    // The spaces herdr opened for the placement (spec 7.2), closed on release.
+    for workspace in names
+        .iter()
+        .filter_map(|name| name.strip_prefix("workspace_opened:"))
+    {
+        effects.push(effect("workspace", "opened", Some(workspace), None));
     }
     // The brief file every worker gets (spec 7.1 step 6).
     for path in names
@@ -1260,6 +1274,9 @@ fn residual_resources(worker: &workers::WorkerRow, pane_created: bool) -> Vec<Re
         .is_some_and(|kind| matches!(kind.as_str(), Some("new-child" | "new-top-level")));
     if created_worktree && let Some(path) = worker.worktree_path.as_deref() {
         residual.push(resource("worktree", "workspace", path));
+    }
+    for workspace in opened_workspaces_of(worker) {
+        residual.push(resource("workspace", "opened", &workspace));
     }
     if let Some(pane) = worker.setup_pane_id.as_deref() {
         residual.push(resource("pane", "setup", pane));
@@ -2117,6 +2134,7 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
     };
     let mut closed_panes = Vec::new();
     let mut closed_tabs = Vec::new();
+    let mut closed_workspaces = Vec::new();
     let mut left = Vec::new();
     let terminal_state = match left_reason {
         Some(reason) => {
@@ -2140,6 +2158,7 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
                 Err(error) => Err(error),
             };
             if closed.is_ok() {
+                closed_workspaces = close_opened_workspaces(engine, &worker, dispatch);
                 "released"
             } else {
                 "release_unknown"
@@ -2167,20 +2186,120 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
                     "terminal_state": terminal_state,
                     "closed_tabs": closed_tabs,
                     "closed_panes": closed_panes,
+                    "closed_workspaces": closed_workspaces,
                     "left_alone": left,
                 })),
             },
         )
     })?;
     engine.after_commit(&attempt.run_id, &[])?;
-    receipt(
+    let mut receipt = receipt(
         engine,
         dispatch,
         closed_panes,
         closed_tabs,
         left,
         terminal_state.into(),
-    )
+    )?;
+    receipt.closed_workspaces = closed_workspaces;
+    Ok(receipt)
+}
+
+/// The workspaces herdr opened for the worker's placement, from its effects.
+fn opened_workspaces_of(worker: &workers::WorkerRow) -> Vec<String> {
+    let names: Vec<String> = worker
+        .effects
+        .clone()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    names
+        .iter()
+        .filter_map(|name| name.strip_prefix("workspace_opened:"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Closes the spaces herdr opened for this worker's placement once its tab
+/// is gone (spec 7.2): the repository's parent space, and the worktree's own
+/// space, each only while it holds nothing but the shell herdr opened it
+/// with (one tab, one pane, no agent) and no other worker of pod. A space a
+/// person has since used, or that was open before the start, stays. A close
+/// herdr refuses is a warning, never a failed release.
+fn close_opened_workspaces(
+    engine: &Engine,
+    worker: &workers::WorkerRow,
+    dispatch: &DispatchId,
+) -> Vec<String> {
+    let mut closed = Vec::new();
+    for workspace in opened_workspaces_of(worker) {
+        let Ok(Some(info)) = engine.herdr.workspace_get(&workspace) else {
+            continue;
+        };
+        let plain = info.tab_count.is_some_and(|tabs| tabs <= 1)
+            && info.pane_count.is_some_and(|panes| panes <= 1)
+            && info
+                .agent_status
+                .as_deref()
+                .is_none_or(|status| status == "unknown");
+        if !plain {
+            continue;
+        }
+        let busy = engine
+            .store
+            .read(|tx| workers::live_in_workspace(tx, &workspace, dispatch))
+            .unwrap_or(true);
+        if busy {
+            continue;
+        }
+        match engine.herdr.workspace_close(&workspace) {
+            Ok(()) => closed.push(workspace),
+            Err(error) => engine.warn(format!(
+                "workspace {workspace} herdr opened for this worker was not closed: {}",
+                error.message
+            )),
+        }
+    }
+    closed
+}
+
+/// Releases the workers whose `worker_done` the coordinator just
+/// acknowledged (spec 7.4): acknowledging the report is the completion
+/// choice, so each such worker still `reclaimable` is released exactly as
+/// `worker-release` would, closing the tab pod created and the spaces herdr
+/// opened for it. A worker retained before the acknowledgement keeps its
+/// pane. Off with config `auto_release = false`. Seen live 2026-10-15: 41
+/// workers released by hand in one session, each a minute after its report.
+pub fn release_acknowledged(
+    engine: &Engine,
+    delivery: &super::deliveries::Delivery,
+) -> Result<Vec<WorkerReceipt>> {
+    if !engine.config.defaults.auto_release {
+        return Ok(Vec::new());
+    }
+    let mut released = Vec::new();
+    for message in &delivery.messages {
+        if message.r#type != "worker_done" {
+            continue;
+        }
+        let Some(id) = message
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.get("dispatch_id"))
+            .and_then(Value::as_str)
+            .and_then(|id| id.parse::<DispatchId>().ok())
+        else {
+            continue;
+        };
+        let reclaimable = engine
+            .store
+            .read(|tx| Ok(workers::get(tx, &id)?.map(|worker| worker.terminal_state)))?
+            .as_deref()
+            == Some("reclaimable");
+        if reclaimable {
+            released.push(release(engine, &id)?);
+        }
+    }
+    Ok(released)
 }
 
 /// Records that the user took the worker's pane over (spec 7.4): stop and
@@ -2461,6 +2580,7 @@ fn receipt(
         worker,
         closed_panes,
         closed_tabs,
+        closed_workspaces: Vec::new(),
         left_alone,
         archive: Archive {
             source: "final_screen".into(),

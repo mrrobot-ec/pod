@@ -35,6 +35,11 @@ pub struct Placement {
     pub owns_initial_tab: bool,
     /// The repository a new worktree was created from (setup config lookup).
     pub repo: Option<PathBuf>,
+    /// The workspaces herdr opened for this placement and nobody asked for:
+    /// the repository's parent space when it was not open, and the worktree's
+    /// own space when `path:` or `branch:` opened it. Release closes each
+    /// that is left holding only the shell herdr gave it.
+    pub opened_workspaces: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -81,6 +86,7 @@ pub fn place(
             initial_tab: None,
             owns_initial_tab: false,
             repo: None,
+            opened_workspaces: Vec::new(),
         }),
         Worktree::NewChild | Worktree::NewTopLevel => {
             let repo = source_checkout(
@@ -104,6 +110,7 @@ pub fn place(
                     .and_then(|folder| folder.to_str())
                     .map(|folder| format!("{folder}/{name}"))
             });
+            let parent_before = engine.herdr.workspace_for_folder(&repo)?;
             let info = engine.herdr.worktree_create(&WorktreeCreate {
                 repo: repo.clone(),
                 name: name.to_owned(),
@@ -111,6 +118,7 @@ pub fn place(
                 display_name,
                 comment: options.comment.map(str::to_owned),
             })?;
+            let opened_workspaces = parent_opened(engine, &repo, parent_before)?;
             Ok(Placement {
                 kind: worktree.clone(),
                 workspace_id: info.workspace_id,
@@ -121,6 +129,7 @@ pub fn place(
                 }),
                 owns_initial_tab: true,
                 repo: Some(repo),
+                opened_workspaces,
             })
         }
         Worktree::Path(path) => {
@@ -200,7 +209,12 @@ fn source_checkout(engine: &Engine, folder: &Path) -> Result<PathBuf> {
 /// The open starts from `source`, the repository's source checkout, so herdr
 /// searches that repository and not its focused workspace's.
 fn opened(engine: &Engine, kind: &Worktree, path: &Path, source: &Path) -> Result<Placement> {
+    let parent_before = engine.herdr.workspace_for_folder(source)?;
     let info = engine.herdr.worktree_open(path, source)?;
+    let mut opened_workspaces = parent_opened(engine, source, parent_before)?;
+    if !info.already_open {
+        opened_workspaces.push(info.workspace_id.clone());
+    }
     Ok(Placement {
         kind: kind.clone(),
         workspace_id: info.workspace_id,
@@ -208,7 +222,24 @@ fn opened(engine: &Engine, kind: &Worktree, path: &Path, source: &Path) -> Resul
         initial_tab: None,
         owns_initial_tab: false,
         repo: None,
+        opened_workspaces,
     })
+}
+
+/// The repository's parent space, when the worktree action just opened it:
+/// herdr opens that space, with one shell pane, before creating or opening
+/// a worktree of a repository that has none, and its result does not say so
+/// (seen live 2026-10-15: a parent space and an idle shell left behind after
+/// every `path:` worker was released).
+fn parent_opened(engine: &Engine, source: &Path, before: Option<String>) -> Result<Vec<String>> {
+    if before.is_some() {
+        return Ok(Vec::new());
+    }
+    Ok(engine
+        .herdr
+        .workspace_for_folder(source)?
+        .into_iter()
+        .collect())
 }
 
 /// A plain project folder herdr does not track as a worktree: the workspace
@@ -223,6 +254,7 @@ fn folder(engine: &Engine, kind: &Worktree, path: &Path) -> Result<Placement> {
             initial_tab: None,
             owns_initial_tab: false,
             repo: None,
+            opened_workspaces: Vec::new(),
         });
     }
     let label = path
@@ -237,6 +269,7 @@ fn folder(engine: &Engine, kind: &Worktree, path: &Path) -> Result<Placement> {
         initial_tab: Some(created.tab),
         owns_initial_tab: true,
         repo: None,
+        opened_workspaces: Vec::new(),
     })
 }
 

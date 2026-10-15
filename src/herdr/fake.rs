@@ -31,6 +31,7 @@ struct State {
     worktree_source: Option<std::path::PathBuf>,
     folder_workspaces: BTreeMap<std::path::PathBuf, String>,
     removed_workspaces: std::collections::BTreeSet<String>,
+    workspace_shapes: BTreeMap<String, (u32, u32, String)>,
     agent_start_error: Option<String>,
     agent_start_failures: VecDeque<String>,
     agent_start_kind: Option<String>,
@@ -70,6 +71,7 @@ impl FakeHerdr {
                 worktree_source: None,
                 folder_workspaces: BTreeMap::new(),
                 removed_workspaces: std::collections::BTreeSet::new(),
+                workspace_shapes: BTreeMap::new(),
                 agent_start_error: None,
                 agent_start_failures: VecDeque::new(),
                 agent_start_kind: None,
@@ -204,6 +206,24 @@ impl FakeHerdr {
             .insert(workspace_id.to_owned());
     }
 
+    /// What `workspace_get` reports a workspace holds: tabs, panes, and the
+    /// agent status herdr shows for it (`unknown` for a plain shell).
+    pub fn set_workspace_shape(&self, workspace_id: &str, tabs: u32, panes: u32, agent: &str) {
+        self.state
+            .lock()
+            .expect("fake herdr mutex poisoned")
+            .workspace_shapes
+            .insert(workspace_id.to_owned(), (tabs, panes, agent.to_owned()));
+    }
+
+    /// The workspaces closed through `workspace_close`, in order.
+    pub fn closed_workspaces(&self) -> Vec<String> {
+        self.calls()
+            .iter()
+            .filter_map(|call| call.strip_prefix("workspace_close:").map(str::to_owned))
+            .collect()
+    }
+
     /// A workspace whose panes sit in `folder`, for `workspace_for_folder`.
     pub fn add_folder_workspace(&self, folder: &Path, workspace_id: &str) {
         self.state
@@ -224,6 +244,7 @@ impl FakeHerdr {
                 branch: branch.to_owned(),
                 tab_id: String::new(),
                 pane_id: String::new(),
+                already_open: false,
             });
     }
 
@@ -729,20 +750,32 @@ impl Herdr for FakeHerdr {
 
     fn workspace_get(&self, workspace_id: &str) -> Result<Option<WorkspaceInfo>> {
         self.record(format!("workspace_get:{workspace_id}"));
-        if self
-            .state
-            .lock()
-            .expect("fake herdr mutex poisoned")
-            .removed_workspaces
-            .contains(workspace_id)
-        {
+        let state = self.state.lock().expect("fake herdr mutex poisoned");
+        if state.removed_workspaces.contains(workspace_id) {
             return Ok(None);
         }
+        let shape = state.workspace_shapes.get(workspace_id).cloned();
         Ok(Some(WorkspaceInfo {
             workspace_id: workspace_id.into(),
             name: None,
             path: None,
+            tab_count: shape.as_ref().map(|shape| shape.0),
+            pane_count: shape.as_ref().map(|shape| shape.1),
+            agent_status: shape.map(|shape| shape.2),
         }))
+    }
+
+    fn workspace_close(&self, workspace_id: &str) -> Result<()> {
+        self.record(format!("workspace_close:{workspace_id}"));
+        let mut state = self.state.lock().expect("fake herdr mutex poisoned");
+        state.removed_workspaces.insert(workspace_id.to_owned());
+        state
+            .folder_workspaces
+            .retain(|_, open| open != workspace_id);
+        state
+            .panes
+            .retain(|_, pane| pane.workspace_id != workspace_id);
+        Ok(())
     }
 
     fn workspace_report_metadata(&self, workspace_id: &str, status: Option<&str>) -> Result<()> {
@@ -782,6 +815,7 @@ impl Herdr for FakeHerdr {
             req.repo.display()
         ));
         let mut state = self.state.lock().expect("fake herdr mutex poisoned");
+        open_parent_space(&mut state, &req.repo);
         let id = state.next_id;
         state.next_id += 1;
         let workspace_id = format!("workspace_{}", req.name);
@@ -801,6 +835,7 @@ impl Herdr for FakeHerdr {
             branch: req.name.clone(),
             tab_id: format!("tab_{id}"),
             pane_id,
+            already_open: false,
         })
     }
 
@@ -829,12 +864,22 @@ impl Herdr for FakeHerdr {
             path.display(),
             source.display()
         ));
+        // As herdr does: the repository's parent space opens first when it
+        // is not open, and the worktree's own space is reused when it is.
+        let mut state = self.state.lock().expect("fake herdr mutex poisoned");
+        open_parent_space(&mut state, source);
+        let already_open = state.folder_workspaces.contains_key(path);
+        state
+            .folder_workspaces
+            .entry(path.to_path_buf())
+            .or_insert_with(|| "workspace_1".to_owned());
         Ok(WorktreeInfo {
             workspace_id: "workspace_1".into(),
             path: path.to_path_buf(),
             branch: "main".into(),
             tab_id: "tab_1".into(),
             pane_id: "pane_1".into(),
+            already_open,
         })
     }
 
@@ -976,4 +1021,28 @@ impl Herdr for FakeHerdr {
             pane_ids: pane_ids.to_vec(),
         }))
     }
+}
+
+/// herdr opens the repository's parent space, with one shell pane, before a
+/// worktree action when that space is not open; this records the same.
+fn open_parent_space(state: &mut State, source: &Path) {
+    if state.folder_workspaces.contains_key(source) {
+        return;
+    }
+    let id = state.next_id;
+    state.next_id += 1;
+    let workspace_id = format!("ws_parent_{id}");
+    state
+        .folder_workspaces
+        .insert(source.to_path_buf(), workspace_id.clone());
+    state.tab_panes.insert(format!("tab_{id}"), 1);
+    let pane_id = format!("pane_{id}");
+    state.panes.insert(
+        pane_id.clone(),
+        PaneInfo {
+            pane_id,
+            terminal_id: format!("term_{id}"),
+            workspace_id,
+        },
+    );
 }

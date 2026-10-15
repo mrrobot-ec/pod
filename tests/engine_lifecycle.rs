@@ -2455,3 +2455,185 @@ fn startable_refusal_names_the_cause() {
         "{wrong_attempt}"
     );
 }
+
+/// A main checkout and a linked worktree of it, the way herdr lists them.
+fn linked_worktree(env: &TestEnv) -> (PathBuf, PathBuf) {
+    let main = env.tmp.path().join("api-service");
+    let linked = env.tmp.path().join("api-service-wt");
+    std::fs::create_dir_all(&main).unwrap();
+    std::fs::create_dir_all(linked.join(".git")).unwrap();
+    env.herdr.set_worktree_source(&main);
+    env.herdr.add_worktree(&linked, "refs/heads/feature");
+    (main, linked)
+}
+
+/// The spaces a start recorded as opened for its placement, from the row.
+fn opened_spaces(env: &TestEnv, dispatch: &DispatchId) -> Vec<String> {
+    let effects: Vec<String> =
+        serde_json::from_value(worker_row(env, dispatch).effects.unwrap()).unwrap();
+    effects
+        .iter()
+        .filter_map(|effect| effect.strip_prefix("workspace_opened:"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Seen live 2026-10-15: herdr opened the repository's parent space, with an
+/// idle shell, for every `path:` worker, and releasing the worker left both
+/// behind. Release closes the spaces herdr opened for the placement, each
+/// only while it holds nothing but that shell.
+#[test]
+fn release_closes_the_spaces_herdr_opened_for_the_placement() {
+    // The parent space and the worktree's own space were both opened by herdr.
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let mut start = input(task, run);
+    start.worktree = Worktree::Path(linked);
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    let opened = opened_spaces(&env, &receipt.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    assert!(opened[0].starts_with("ws_parent_"), "{opened:?}");
+    assert_eq!(opened[1], "workspace_1");
+    let reported: Vec<_> = receipt
+        .effects
+        .iter()
+        .filter(|effect| effect.kind == "workspace" && effect.action == "opened")
+        .filter_map(|effect| effect.id.clone())
+        .collect();
+    assert_eq!(reported, opened);
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &receipt.dispatch_id);
+    let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.closed_workspaces, opened);
+    assert_eq!(env.herdr.closed_workspaces(), opened);
+
+    // A parent space that was open before the start is not herdr's to undo.
+    let (env, run, task) = seeded();
+    let (main, linked) = linked_worktree(&env);
+    env.herdr.add_folder_workspace(&main, "ws_user");
+    let mut start = input(task, run);
+    start.worktree = Worktree::Path(linked);
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    let opened = opened_spaces(&env, &receipt.dispatch_id);
+    assert_eq!(opened, ["workspace_1"]);
+    env.herdr.set_workspace_shape("ws_user", 1, 1, "unknown");
+    env.herdr
+        .set_workspace_shape("workspace_1", 1, 1, "unknown");
+    settle(&env, &receipt.dispatch_id);
+    let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
+    assert_eq!(released.closed_workspaces, ["workspace_1"]);
+    assert_eq!(env.herdr.closed_workspaces(), ["workspace_1"]);
+
+    // A space a person has since used stays: a second tab, or a live agent.
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let mut start = input(task, run);
+    start.worktree = Worktree::Path(linked);
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    let opened = opened_spaces(&env, &receipt.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    env.herdr.set_workspace_shape(&opened[0], 2, 1, "unknown");
+    env.herdr.set_workspace_shape(&opened[1], 1, 1, "working");
+    settle(&env, &receipt.dispatch_id);
+    let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert!(released.closed_workspaces.is_empty());
+    assert!(env.herdr.closed_workspaces().is_empty());
+}
+
+/// The worker_done a worker would have sent, in the Run mailbox.
+fn report_done(env: &TestEnv, run: &RunId, handle: &str, dispatch: &DispatchId) {
+    env.engine
+        .store
+        .tx(|tx| {
+            pod::store::rows::messages::insert(
+                tx,
+                &pod::store::rows::messages::MessageRow {
+                    sequence: None,
+                    id: pod::ids::MessageId::new(),
+                    run_id: run.clone(),
+                    mailbox: format!("run:{run}"),
+                    from_handle: handle.into(),
+                    subject: "done".into(),
+                    body: Some("finished".into()),
+                    r#type: "worker_done".into(),
+                    priority: "normal".into(),
+                    thread_id: None,
+                    payload: Some(serde_json::json!({
+                        "dispatch_id": dispatch,
+                        "outcome": "succeeded",
+                    })),
+                    read: false,
+                    created_at: env.engine.clock.now(),
+                    delivered_at: None,
+                    sender_terminal_id: Some("term-worker".into()),
+                    rejected_reason: None,
+                    evidence: None,
+                    recommendation: None,
+                },
+            )?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+/// The coordinator reads the Run mailbox, then acknowledges what it read, and
+/// the workers behind the acknowledged reports are released.
+fn acknowledge_reports(env: &TestEnv, run: &RunId) -> Vec<lifecycle::WorkerReceipt> {
+    let mailbox = format!("run:{run}");
+    let delivery = pod::engine::deliveries::check_consume(&env.engine, &mailbox).unwrap();
+    let acked = pod::engine::deliveries::check_ack(&env.engine, &delivery.id).unwrap();
+    lifecycle::release_acknowledged(&env.engine, &acked).unwrap()
+}
+
+/// Seen live 2026-10-15: 41 workers were released by hand in one session,
+/// because the sweep that ran before a wait never got to run first.
+/// Acknowledging the report is the completion choice, so it releases the
+/// worker; config `auto_release` turns that off, and a worker retained before
+/// the acknowledgement keeps its pane.
+#[test]
+fn acknowledging_a_report_releases_its_worker() {
+    let (env, run, task) = seeded();
+    let started = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &started.dispatch_id);
+    assert_eq!(
+        worker_row(&env, &started.dispatch_id).terminal_state,
+        "reclaimable"
+    );
+    report_done(&env, &run, &started.handle, &started.dispatch_id);
+    let released = acknowledge_reports(&env, &run);
+    assert_eq!(released.len(), 1);
+    assert_eq!(released[0].dispatch_id, started.dispatch_id);
+    assert!(!released[0].closed_tabs.is_empty());
+    assert_eq!(
+        worker_row(&env, &started.dispatch_id).terminal_state,
+        "released"
+    );
+
+    // With the switch off, acknowledging releases nothing.
+    let (mut env, run, task) = seeded();
+    env.engine.config.defaults.auto_release = false;
+    let started = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &started.dispatch_id);
+    report_done(&env, &run, &started.handle, &started.dispatch_id);
+    assert!(acknowledge_reports(&env, &run).is_empty());
+    assert_eq!(
+        worker_row(&env, &started.dispatch_id).terminal_state,
+        "reclaimable"
+    );
+
+    // A worker retained before the acknowledgement keeps its pane.
+    let (env, run, task) = seeded();
+    let started = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &started.dispatch_id);
+    lifecycle::retain(&env.engine, &started.dispatch_id, "keep for the next task").unwrap();
+    report_done(&env, &run, &started.handle, &started.dispatch_id);
+    assert!(acknowledge_reports(&env, &run).is_empty());
+    assert_eq!(
+        worker_row(&env, &started.dispatch_id).terminal_state,
+        "retained"
+    );
+}

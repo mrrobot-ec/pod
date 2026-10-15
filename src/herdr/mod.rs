@@ -48,6 +48,11 @@ pub struct WorkspaceInfo {
     pub workspace_id: String,
     pub name: Option<String>,
     pub path: Option<PathBuf>,
+    /// What the workspace holds, when herdr reports it: a space left with
+    /// one tab, one pane, and no agent is the shell herdr opened it with.
+    pub tab_count: Option<u32>,
+    pub pane_count: Option<u32>,
+    pub agent_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -66,6 +71,9 @@ pub struct WorktreeInfo {
     pub branch: String,
     pub tab_id: String,
     pub pane_id: String,
+    /// Whether the worktree's workspace was open before this call (herdr's
+    /// `already_open`); a listing row says whether one is open at all.
+    pub already_open: bool,
 }
 
 /// What herdr's `worktree.list` answers for a folder: the repository's
@@ -161,6 +169,8 @@ pub trait Herdr: Send + Sync {
     /// tab is gone.
     fn tab_pane_count(&self, tab_id: &str) -> Result<Option<u32>>;
     fn workspace_get(&self, workspace_id: &str) -> Result<Option<WorkspaceInfo>>;
+    /// Closes a workspace (`workspace.close`), with every tab and pane in it.
+    fn workspace_close(&self, workspace_id: &str) -> Result<()>;
     /// The workspace of a pane whose cwd is exactly `folder`, if any
     /// (herdr `pane.list`).
     fn workspace_for_folder(&self, folder: &Path) -> Result<Option<String>>;

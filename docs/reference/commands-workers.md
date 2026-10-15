@@ -53,6 +53,8 @@ Receipts use the names of Orca's contract samples (`tests/contract`). Success:
  "worker": {"state": "ready", "terminalState": "active", "paneId": "p_12", "...": "the worker row"}}
 ```
 
+A `path:` or `branch:` placement, or a new worktree, can make herdr open the repository's parent space and, for an existing worktree, the worktree's own space. Each shows in `effects` as `{"kind": "workspace", "action": "opened", "id": "<workspace id>"}`, and `worker-release` closes it again.
+
 `setup.source` is `current_folder`, `existing_worktree`, `new_worktree`, or `reused_pane`; `requested` and `effective` are `run`, `skip`, `inherit`, or `not_applicable` (current and existing worktrees never run setup). Failure (exit 1; `state` is `failed` or `start_unknown`), which also carries `lastError`:
 
 ```json
@@ -62,7 +64,7 @@ Receipts use the names of Orca's contract samples (`tests/contract`). Success:
  "nextCommands": ["pod worker-release --dispatch ctx_9d41e7", "pod worker-show --dispatch ctx_9d41e7"]}
 ```
 
-`residualResources[].role` is `agent`, `setup` (the setup pane, never closed), or `workspace` (a worktree pod created, never removed); the worker row keeps the same list. `nextCommands` is omitted when there is nothing to do. A start that fails after creating a pane leaves that worker `reclaimable`. A `start_unknown` start sets the Task `blocked`. The `dispatched_unobserved` outcome means the preamble was pasted but not confirmed on screen, so Enter was withheld; the preamble is never sent twice:
+`residualResources[].role` is `agent`, `setup` (the setup pane, never closed), `workspace` (a worktree pod created, never removed), or `opened` with `kind: "workspace"` (a space herdr opened for the placement, closed by `worker-release`); the worker row keeps the same list. `nextCommands` is omitted when there is nothing to do. A start that fails after creating a pane leaves that worker `reclaimable`. A `start_unknown` start sets the Task `blocked`. The `dispatched_unobserved` outcome means the preamble was pasted but not confirmed on screen, so Enter was withheld; the preamble is never sent twice:
 
 ```json
 {"dispatchId": "ctx_9d41e7", "state": "ready", "outcome": "dispatched_unobserved", "lastError": "the preamble was pasted but ...",
@@ -179,11 +181,11 @@ The reason is supplied with a `--reason <text>` flag; without it, pod records `c
 
 ## `pod worker-release --dispatch <id>`
 
-Archives the final screen text for every agent kind, whether or not a transcript reader exists, then closes the worker's tab only if pod created it. When a person has split another pane into that tab (herdr's `tab.get` reports more than one pane), only the worker's pane is closed and it is listed in `closedPanes`. Reused, pre-existing, setup, coordinator, active, user-taken-over, and unproven panes are left alone. The setup pane is never closed. Safe to call again; a worker in `release_pending` or `release_unknown` is retried.
+Archives the final screen text for every agent kind, whether or not a transcript reader exists, then closes the worker's tab only if pod created it. When a person has split another pane into that tab (herdr's `tab.get` reports more than one pane), only the worker's pane is closed and it is listed in `closedPanes`. Reused, pre-existing, setup, coordinator, active, user-taken-over, and unproven panes are left alone. The setup pane is never closed. After the tab closes, release also closes the spaces herdr opened for the placement (the `workspace` `opened` effects of `worker-start`), listed in `closedWorkspaces`: a space is closed only when herdr reports one tab, one pane, and no agent in it, and no other pod worker holds a pane there. A space a person has used, or that was open before the start, stays; a close herdr refuses is a warning, not a failed release. Safe to call again; a worker in `release_pending` or `release_unknown` is retried.
 
 ```json
 {"dispatchId": "ctx_9d41e7", "state": "released", "outcome": "released", "archive": {"source": "final_screen", "status": "preserved", "bytes": 4120},
- "closedPanes": [], "closedTabs": ["t_7"], "leftAlone": [], "dispatch": {"...": "the Dispatch row"}, "worker": {"terminalState": "released"}}
+ "closedPanes": [], "closedTabs": ["t_7"], "closedWorkspaces": ["ws_9"], "leftAlone": [], "dispatch": {"...": "the Dispatch row"}, "worker": {"terminalState": "released"}}
 ```
 
 Every worker receipt (stop, abandon, retain, release) has this layout, and like `worker-start` and `worker-show` it spells the `dispatch` and `worker` rows in camelCase (`terminalState`, plus Orca's `task_id` on the Dispatch): `state` is the worker's `terminal_state` afterwards and `archive.status` is `preserved` or `absent`. When a pane is left alone, `leftAlone` gives the reason (`pane_not_created_by_pod`, `user_taken_over`, `no_worker_pane`, `setup_pane`, `coordinator_pane`, `active`, `pane_already_closed`), and `terminal_state` becomes `released`. herdr reports no typing into a pane (protocol 22), so a pane that closed while pod was neither stopping nor releasing it is what marks a worker user-taken-over ([herdr adapter](herdr-adapter.md) item 10); retain marks it too. Leaving a pane alone still counts as released, because pod's obligation to account for the worker is met. A worker that is still `active` (its Dispatch has not ended) is not released at all: the receipt lists `active` in `leftAlone`, nothing is archived or closed, and `terminal_state` stays `active`, because release starts only from `reclaimable` or `retained` ([state machines](state-machines.md) R7).
@@ -192,10 +194,10 @@ Errors: `store_access_denied`. A close that cannot be confirmed leaves `release_
 
 ## `pod worker-gc [--run <id>]`
 
-Releases every worker of the Run that is `reclaimable`, `release_pending`, or `release_unknown`, each exactly as `worker-release` would: the final screen is archived, then the tab closes only if pod created it. Retained workers are kept, because retain is a choice already made, and active workers are still working; both are listed in `kept` with their reason. Without `--run` the Run bound to the caller's terminal is swept. `check --wait` runs the acknowledged subset of this sweep on its own before it blocks (config `release_on_wait`), so `worker-gc` is for the rest: workers stopped or abandoned without a report, and whatever `worker-list --terminal-state reclaimable` still returns.
+Releases every worker of the Run that is `reclaimable`, `release_pending`, or `release_unknown`, each exactly as `worker-release` would: the final screen is archived, then the tab closes only if pod created it. Retained workers are kept, because retain is a choice already made, and active workers are still working; both are listed in `kept` with their reason. Without `--run` the Run bound to the caller's terminal is swept. Acknowledging a `worker_done` releases its worker on its own, and `check --wait` runs the acknowledged subset of this sweep before it blocks (config `auto_release`), so `worker-gc` is for the rest: workers stopped or abandoned without a report, and whatever `worker-list --terminal-state reclaimable` still returns.
 
 ```json
-{"runId": "run_8f2c1a", "released": [{"dispatchId": "ctx_9d41e7", "state": "released", "outcome": "released", "closedTabs": ["t_7"], "closedPanes": [], "leftAlone": [], "...": "a worker-release receipt"}],
+{"runId": "run_8f2c1a", "released": [{"dispatchId": "ctx_9d41e7", "state": "released", "outcome": "released", "closedTabs": ["t_7"], "closedPanes": [], "closedWorkspaces": [], "leftAlone": [], "...": "a worker-release receipt"}],
  "kept": [{"dispatchId": "ctx_4b0c22", "terminalState": "retained", "reason": "retained"}]}
 ```
 

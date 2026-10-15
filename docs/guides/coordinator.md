@@ -85,7 +85,7 @@ Put dependencies in `--deps '["task_id", ...]'` as a JSON array. A Task is creat
 
 ## Completion accounting
 
-After an accepted `worker_done`, do exactly one of these for that worker before you wait again: your next `check --wait` releases every worker whose report you have acknowledged (closing the tab pod created) and lists them in `released`, so a pane you want to reuse or keep must be reused or retained first. `pod worker-gc` releases the rest, workers stopped or abandoned without a report, in one call under the same rules.
+After an accepted `worker_done`, do exactly one of these for that worker before you wait again: acknowledging the report (`check --ack`) releases that worker and closes its tab, and lists it in `released`. To keep a pane, `worker-retain` it before you acknowledge; to reuse it, run `worker-start --terminal` or `dispatch --to` before you acknowledge. `pod worker-gc` releases the rest, workers stopped or abandoned without a report, in one call under the same rules.
 
 | Choice | Command | Use when |
 |---|---|---|

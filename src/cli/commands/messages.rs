@@ -224,19 +224,21 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
         } else {
             engine::messages::mailbox_for(&engine, None)?
         };
+        // Acknowledging a worker_done releases its worker (spec 7.4), and
+        // the wait first releases every other acknowledged one: going back
+        // to waiting means the completion choice was made.
+        let mut released = Vec::new();
         if let Some(ack) = args.ack.as_deref() {
-            engine::deliveries::check_ack(&engine, &DeliveryId::from_str(ack)?)?;
+            let acked = engine::deliveries::check_ack(&engine, &DeliveryId::from_str(ack)?)?;
+            released.extend(engine::lifecycle::release_acknowledged(&engine, &acked)?);
         }
-        // Workers whose worker_done the coordinator has acknowledged are
-        // released before the wait (spec 7.4): going back to waiting means
-        // the completion choice was made, so the tabs pod created close.
-        let released = if engine.config.defaults.release_on_wait
+        if engine.config.defaults.auto_release
             && let Some(run) = mailbox.strip_prefix("run:")
         {
-            engine::lifecycle::gc(&engine, Some(&RunId::from_str(run)?), true)?.released
-        } else {
-            Vec::new()
-        };
+            released.extend(
+                engine::lifecycle::gc(&engine, Some(&RunId::from_str(run)?), true)?.released,
+            );
+        }
         let (delivery, woke_on) = engine::waiting::check_wait_mailbox(
             &engine,
             &mailbox,
@@ -265,20 +267,7 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
             woke_on
         });
         value["attention"] = json!(attention_view(&engine, &delivery.run_id)?);
-        value["released"] = json!(
-            released
-                .iter()
-                .map(|worker| {
-                    json!({
-                        "dispatchId": worker.dispatch_id,
-                        "state": worker.state,
-                        "closedTabs": worker.closed_tabs,
-                        "closedPanes": worker.closed_panes,
-                        "leftAlone": worker.left_alone,
-                    })
-                })
-                .collect::<Vec<_>>()
-        );
+        value["released"] = released_view(&released);
         let warnings = engine.take_warnings();
         if !warnings.is_empty() {
             value["warnings"] = json!(warnings);
@@ -330,6 +319,7 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
     let ack = args.ack.as_deref().map(DeliveryId::from_str).transpose()?;
     if args.peek || args.all {
         let mut replayed = None;
+        let mut released = Vec::new();
         if let Some(ack) = &ack {
             let hash = runs::payload_hash(&json!({"ack": ack}));
             let (delivery, again) = engine::receipts::with_receipt_replay(
@@ -340,6 +330,9 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
                 |tx| engine::deliveries::check_ack_in(tx, now, ack),
             )?;
             engine.after_commit(&delivery.run_id, &[])?;
+            if !again {
+                released = engine::lifecycle::release_acknowledged(&engine, &delivery)?;
+            }
             replayed = Some(again);
         }
         let messages = if args.peek {
@@ -348,6 +341,9 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
             engine::deliveries::check_all(&engine, &mailbox, &types)?
         };
         let mut value = json!({"messages": messages, "count": messages.len()});
+        if ack.is_some() {
+            value["released"] = released_view(&released);
+        }
         if args.format {
             value["formatted"] = json!(format_messages(&messages));
         }
@@ -361,14 +357,21 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
     }
     let consumer = engine::deliveries::consumer(&engine);
     let hash = runs::payload_hash(&json!({"mailbox": mailbox, "ack": ack}));
+    let mut acknowledged = None;
     let (delivery, replayed) =
         engine::receipts::with_receipt_replay(&engine, request.as_ref(), "check", &hash, |tx| {
             if let Some(ack) = &ack {
-                engine::deliveries::check_ack_in(tx, now, ack)?;
+                acknowledged = Some(engine::deliveries::check_ack_in(tx, now, ack)?);
             }
             engine::deliveries::check_consume_in(tx, now, &mailbox, &consumer)
         })?;
     engine.after_commit(&delivery.run_id, &[])?;
+    // Acknowledging a worker_done releases its worker (spec 7.4); a replayed
+    // receipt acknowledged nothing new.
+    let released = match acknowledged {
+        Some(acked) => engine::lifecycle::release_acknowledged(&engine, &acked)?,
+        None => Vec::new(),
+    };
     let messages = &delivery.messages;
     let mut value = if messages.is_empty() {
         json!({"delivery": Value::Null, "messages": [], "count": 0, "timedOut": false})
@@ -379,11 +382,33 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
         }
         json!({"delivery": delivery_view, "messages": messages, "count": messages.len()})
     };
+    if ack.is_some() {
+        value["released"] = released_view(&released);
+    }
     if args.format {
         value["formatted"] = json!(format_messages(messages));
     }
     let _explicit_unread = args.unread;
     super::emit_mutation(ctx, &value, replayed)
+}
+
+/// The workers a check released, for the receipt's `released`.
+fn released_view(released: &[engine::lifecycle::WorkerReceipt]) -> Value {
+    json!(
+        released
+            .iter()
+            .map(|worker| {
+                json!({
+                    "dispatchId": worker.dispatch_id,
+                    "state": worker.state,
+                    "closedTabs": worker.closed_tabs,
+                    "closedPanes": worker.closed_panes,
+                    "closedWorkspaces": worker.closed_workspaces,
+                    "leftAlone": worker.left_alone,
+                })
+            })
+            .collect::<Vec<_>>()
+    )
 }
 
 pub fn ask(ctx: &Ctx, args: AskArgs) -> Result<()> {

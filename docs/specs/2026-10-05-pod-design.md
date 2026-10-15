@@ -401,6 +401,12 @@ The worker's tab is labelled `<handle> · <task title>` and relabelled on reuse.
   herdr refuses a linked worktree as a starting point, so a coordinator that
   sits in one still creates and opens from the parent, and a `path:` target
   in another repository opens from that repository's checkout.
+- herdr opens the repository's parent space (with one shell pane) before a
+  worktree action when none is open, and an open may also open the
+  worktree's own space. pod records the spaces an open or create left behind
+  on the worker, and release closes each one that still holds only that shell
+  (one tab, one pane, no agent) and no other pod worker. A refused close is a
+  warning, never a failed release.
 - A fresh worker means a fresh agent pane, not a new worktree. Create a worktree
   only when asked or when a concrete filesystem conflict makes sharing unsafe.
 
@@ -439,11 +445,14 @@ release.
   pod did not put there, no nudge or paste touches the pane until a later read
   finds the input bare, and typing alone does not make the pane user-owned.
   Closing or retaining it still does.
-- `check --wait` first releases every worker whose `worker_done` the
-  coordinator has acknowledged (config `release_on_wait`, default on): going
-  back to waiting means the completion choice was made, so the tab pod
-  created closes without a command. A report nobody has acknowledged keeps
-  its pane. The result lists them in `released`.
+- Acknowledging a `worker_done` (any `check --ack`, with or without
+  `--wait`) releases that worker, exactly as `worker-release` would, and
+  `check --wait` first releases every worker whose report is already
+  acknowledged (config `auto_release`, default on; `release_on_wait` is the
+  0.2.7 name and still accepted). The acknowledgement is the completion
+  choice, so the tab pod created closes without a command. A worker retained
+  before the acknowledgement keeps its pane, and a report nobody has
+  acknowledged keeps its pane. The result lists the workers in `released`.
 - The coordinator's turn is not finished while `worker-list --terminal-state
   reclaimable` returns rows.
 

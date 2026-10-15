@@ -291,6 +291,15 @@ impl Herdr for SocketHerdr {
         Ok(())
     }
 
+    fn workspace_close(&self, workspace_id: &str) -> Result<()> {
+        self.expected(
+            "workspace.close",
+            json!({"workspace_id": workspace_id}),
+            "ok",
+        )?;
+        Ok(())
+    }
+
     fn tab_rename(&self, tab_id: &str, label: &str) -> Result<()> {
         self.expected(
             "tab.rename",
@@ -417,6 +426,7 @@ impl Herdr for SocketHerdr {
                 let worktree: WireWorktree = serde_json::from_value(value.clone())
                     .map_err(|error| invalid_response("worktree.list", error))?;
                 Ok(WorktreeInfo {
+                    already_open: worktree.open_workspace_id.is_some(),
                     workspace_id: worktree.open_workspace_id.unwrap_or_default(),
                     path: worktree.path,
                     branch: worktree.branch.unwrap_or_default(),
@@ -672,6 +682,12 @@ struct WireWorkspace {
     workspace_id: String,
     label: Option<String>,
     worktree: Option<WireWorkspaceWorktree>,
+    #[serde(default)]
+    tab_count: Option<u32>,
+    #[serde(default)]
+    pane_count: Option<u32>,
+    #[serde(default)]
+    agent_status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -796,6 +812,9 @@ fn workspace_info(value: &Value) -> Result<WorkspaceInfo> {
         workspace_id: raw.workspace_id,
         name: raw.label,
         path: raw.worktree.map(|worktree| worktree.checkout_path),
+        tab_count: raw.tab_count,
+        pane_count: raw.pane_count,
+        agent_status: raw.agent_status,
     })
 }
 
@@ -810,6 +829,10 @@ fn worktree_info(result: &Value, method: &str) -> Result<WorktreeInfo> {
         branch: worktree.branch.unwrap_or_default(),
         tab_id: tab.tab_id,
         pane_id: pane.pane_id,
+        already_open: result
+            .get("already_open")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
