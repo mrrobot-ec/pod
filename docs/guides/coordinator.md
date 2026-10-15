@@ -85,7 +85,7 @@ Put dependencies in `--deps '["task_id", ...]'` as a JSON array. A Task is creat
 
 ## Completion accounting
 
-After an accepted `worker_done`, do exactly one of these for that worker. Doing none leaves a `reclaimable` worker and an unfinished turn. After a batch of reports, `pod worker-gc` releases every reclaimable worker of the Run in one call, under the same rules as release; retained and active workers are kept and listed.
+After an accepted `worker_done`, do exactly one of these for that worker before you wait again: your next `check --wait` releases every worker whose report you have acknowledged (closing the tab pod created) and lists them in `released`, so a pane you want to reuse or keep must be reused or retained first. `pod worker-gc` releases the rest, workers stopped or abandoned without a report, in one call under the same rules.
 
 | Choice | Command | Use when |
 |---|---|---|

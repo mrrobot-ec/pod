@@ -227,6 +227,16 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
         if let Some(ack) = args.ack.as_deref() {
             engine::deliveries::check_ack(&engine, &DeliveryId::from_str(ack)?)?;
         }
+        // Workers whose worker_done the coordinator has acknowledged are
+        // released before the wait (spec 7.4): going back to waiting means
+        // the completion choice was made, so the tabs pod created close.
+        let released = if engine.config.defaults.release_on_wait
+            && let Some(run) = mailbox.strip_prefix("run:")
+        {
+            engine::lifecycle::gc(&engine, Some(&RunId::from_str(run)?), true)?.released
+        } else {
+            Vec::new()
+        };
         let (delivery, woke_on) = engine::waiting::check_wait_mailbox(
             &engine,
             &mailbox,
@@ -255,6 +265,20 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
             woke_on
         });
         value["attention"] = json!(attention_view(&engine, &delivery.run_id)?);
+        value["released"] = json!(
+            released
+                .iter()
+                .map(|worker| {
+                    json!({
+                        "dispatchId": worker.dispatch_id,
+                        "state": worker.state,
+                        "closedTabs": worker.closed_tabs,
+                        "closedPanes": worker.closed_panes,
+                        "leftAlone": worker.left_alone,
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
         let warnings = engine.take_warnings();
         if !warnings.is_empty() {
             value["warnings"] = json!(warnings);

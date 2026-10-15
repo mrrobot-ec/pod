@@ -1983,8 +1983,11 @@ pub struct GcKept {
 /// would (spec 7.4): the final screen is archived and the tab closes only if
 /// pod created it. Retained workers are kept, since retain is a choice
 /// already made, and active ones are still working; both are listed with
-/// their reason. Without `run` the Run bound to the caller's terminal is swept.
-pub fn gc(engine: &Engine, run: Option<&RunId>) -> Result<GcReceipt> {
+/// their reason. With `acknowledged_only`, the pass `check --wait` runs, a
+/// reclaimable worker is released only once the coordinator has acknowledged
+/// its `worker_done`, so a report nobody has read keeps its pane. Without
+/// `run` the Run bound to the caller's terminal is swept.
+pub fn gc(engine: &Engine, run: Option<&RunId>, acknowledged_only: bool) -> Result<GcReceipt> {
     let run_id = match run {
         Some(run) => run.clone(),
         None => {
@@ -2002,15 +2005,23 @@ pub fn gc(engine: &Engine, run: Option<&RunId>) -> Result<GcReceipt> {
         let mut rows = Vec::new();
         for attempt in dispatches::list_by_run(tx, &run_id)? {
             if let Some(worker) = workers::get(tx, &attempt.id)? {
-                rows.push((attempt.id, worker.terminal_state));
+                let acknowledged =
+                    crate::store::rows::messages::first_worker_done(tx, attempt.id.as_str())?
+                        .is_some_and(|report| report.read);
+                rows.push((attempt.id, worker.terminal_state, acknowledged));
             }
         }
         Ok(rows)
     })?;
     let mut released = Vec::new();
     let mut kept = Vec::new();
-    for (dispatch, state) in candidates {
+    for (dispatch, state, acknowledged) in candidates {
         match state.as_str() {
+            "reclaimable" if acknowledged_only && !acknowledged => kept.push(GcKept {
+                dispatch_id: dispatch,
+                terminal_state: state,
+                reason: "report_not_acknowledged".into(),
+            }),
             "reclaimable" | "release_pending" | "release_unknown" => {
                 released.push(release(engine, &dispatch)?);
             }

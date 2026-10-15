@@ -133,6 +133,46 @@ struct StatusReport<'a> {
     store: StoreStatus<'a>,
     herdr: HerdrStatus,
     run: Option<serde_json::Value>,
+    /// The bound Run's workers by terminal state, and the ones that look
+    /// stalled: `stale` (no heartbeat, activity, or message for 10 minutes)
+    /// or idle at a prompt with an open Dispatch. Absent without a bound
+    /// Run or when herdr cannot be asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workers: Option<serde_json::Value>,
+}
+
+/// Best effort: the bound Run's workers, projected as `worker-list` does.
+fn workers_summary(ctx: &Ctx, run: &crate::ids::RunId) -> Option<serde_json::Value> {
+    let engine = ctx.engine().ok()?;
+    let list = crate::engine::lifecycle::list(&engine, Some(run), None, 100, None).ok()?;
+    let stalled: Vec<serde_json::Value> = list
+        .workers
+        .iter()
+        .filter_map(|view| {
+            let stale = view
+                .projection
+                .attention
+                .categories
+                .iter()
+                .any(|category| category == "stale");
+            let idle_with_open_dispatch = view.dispatch.status == "dispatched"
+                && view.projection.activity == "idle_at_prompt";
+            let reason = if stale {
+                "stale"
+            } else if idle_with_open_dispatch {
+                "idle_with_open_dispatch"
+            } else {
+                return None;
+            };
+            Some(serde_json::json!({
+                "dispatchId": view.dispatch.id,
+                "handle": view.dispatch.assignee_handle,
+                "reason": reason,
+                "nextAction": view.projection.next_action,
+            }))
+        })
+        .collect();
+    Some(serde_json::json!({"counts": list.counts, "stalled": stalled}))
 }
 
 pub fn doctor(ctx: &Ctx) -> Result<()> {
@@ -295,8 +335,10 @@ pub fn status(ctx: &Ctx) -> Result<()> {
         .map(|caller| store.read(|tx| runs::bound_run(tx, &caller)))
         .transpose()?
         .flatten();
+    let workers = bound.as_ref().and_then(|run| workers_summary(ctx, &run.id));
     let report = StatusReport {
         version: env!("CARGO_PKG_VERSION"),
+        workers,
         session: &paths.session,
         state_dir: &paths.state_dir,
         paths: StatusPaths {

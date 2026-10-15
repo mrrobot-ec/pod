@@ -439,6 +439,11 @@ release.
   pod did not put there, no nudge or paste touches the pane until a later read
   finds the input bare, and typing alone does not make the pane user-owned.
   Closing or retaining it still does.
+- `check --wait` first releases every worker whose `worker_done` the
+  coordinator has acknowledged (config `release_on_wait`, default on): going
+  back to waiting means the completion choice was made, so the tab pod
+  created closes without a command. A report nobody has acknowledged keeps
+  its pane. The result lists them in `released`.
 - The coordinator's turn is not finished while `worker-list --terminal-state
   reclaimable` returns rows.
 
@@ -519,6 +524,8 @@ reported separately.
 - Success means the message is durably stored. Nothing more.
 - Default recipient for a worker with an active Dispatch: its Run mailbox.
   `worker_done` and `heartbeat` always go to `run:<id>` regardless of `--to`.
+  A heartbeat is evidence, not mail: it updates the Dispatch and is stored
+  read, so it never lands in a Delivery, ends a wait, or nudges anyone.
 - `task:` recipients are rejected. A sender bound to no Run must address
   `run:<id>` or `dispatch:<id>`.
 - A rejected lifecycle message is still stored, rewritten to type `status` with

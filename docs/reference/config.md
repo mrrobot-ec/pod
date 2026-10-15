@@ -61,6 +61,7 @@ The `sol` preset is the reviewer: a codex agent at `xhigh` effort. `terra` is th
 | `nested_depth_max` | integer | `1` | `>= 0`. At `1`, workers may not start workers. A start whose depth would exceed it returns `nested_worker_depth_exceeded`. | `worker-start`, `dispatch` (preflight); preamble rendering for the `=== SUB-DISPATCH ===` section |
 | `heartbeat_minutes` | integer | `5` | `>= 1`. | `worker-start`, `dispatch` (the cadence printed in the preamble) |
 | `ask_timeout_ms` | integer | `600000` | `>= 1`; values above `1800000` are capped at `1800000`. An explicit `--timeout-ms` on `ask` is capped the same way. | `ask` |
+| `release_on_wait` | boolean | `true` | `check --wait` first releases every worker of the Run whose `worker_done` the coordinator has acknowledged, as `worker-release` would, and lists them in `released`. `false` leaves every release to `worker-release` and `worker-gc`. | `check --wait` |
 
 The spec fixes the defaults shown, the ask timeout cap, alias restrictions, and launch mappings. The numeric lower bounds and the defaults for omitted alias and preset fields are pod's own. A timeout above the cap is clamped to the cap, not rejected.
 

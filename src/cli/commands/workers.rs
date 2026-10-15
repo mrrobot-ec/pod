@@ -815,7 +815,7 @@ pub fn worker_gc(ctx: &Ctx, args: WorkerGcArgs) -> Result<()> {
     let engine = ctx.engine()?;
     let run = args.run.as_deref().map(RunId::from_str).transpose()?;
     let (receipt, replayed) = mutation(ctx, &engine, "worker-gc", &json!({"run": &run}), || {
-        lifecycle::gc(&engine, run.as_ref())
+        lifecycle::gc(&engine, run.as_ref(), false)
     })?;
     let ok = receipt
         .released

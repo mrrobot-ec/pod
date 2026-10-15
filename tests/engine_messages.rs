@@ -166,6 +166,38 @@ fn success_defaults_no_follow_on() {
     assert_eq!(reason, "no_follow_on");
 }
 
+/// A heartbeat updates the Dispatch and is stored read: the coordinator's
+/// consuming check never returns it, so no batch needs an acknowledgement
+/// for it (every batch used to carry them, 2026-10-15).
+#[test]
+fn heartbeat_updates_the_dispatch_and_is_never_delivered() {
+    let mut env = TestEnv::new();
+    seed_worker(&env, "dispatched");
+    env.as_caller(TERMINAL, std::process::id());
+    let mut beat = input("heartbeat");
+    beat.phase = Some("reviewing".into());
+    let receipt = messages::send(&env.engine, beat).unwrap();
+    assert_eq!(receipt.message_ids.len(), 1);
+    let (heartbeat_at, phase, stored) = env
+        .engine
+        .store
+        .read(|tx| {
+            let dispatch =
+                pod::store::rows::dispatches::get(tx, &DispatchId::from_str(DISPATCH).unwrap())?
+                    .unwrap();
+            let stored = pod::store::rows::messages::get(tx, &receipt.message_ids[0])?.unwrap();
+            Ok((dispatch.last_heartbeat_at, dispatch.last_phase, stored))
+        })
+        .unwrap();
+    assert!(heartbeat_at.is_some());
+    assert_eq!(phase.as_deref(), Some("reviewing"));
+    assert!(stored.read && stored.delivered_at.is_some());
+
+    env.as_caller("term-coordinator", std::process::id());
+    let delivery = deliveries::check_consume(&env.engine, &format!("run:{RUN}")).unwrap();
+    assert!(delivery.messages.is_empty(), "{:?}", delivery.messages);
+}
+
 #[test]
 fn worker_done_duplicate_same_outcome_settled_duplicate_true() {
     let mut env = TestEnv::new();

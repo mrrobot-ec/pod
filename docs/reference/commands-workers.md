@@ -192,7 +192,7 @@ Errors: `store_access_denied`. A close that cannot be confirmed leaves `release_
 
 ## `pod worker-gc [--run <id>]`
 
-Releases every worker of the Run that is `reclaimable`, `release_pending`, or `release_unknown`, each exactly as `worker-release` would: the final screen is archived, then the tab closes only if pod created it. Retained workers are kept, because retain is a choice already made, and active workers are still working; both are listed in `kept` with their reason. Without `--run` the Run bound to the caller's terminal is swept. Run it after a batch of `worker_done` reports instead of one `worker-release` per worker, and whenever `worker-list --terminal-state reclaimable` still returns rows.
+Releases every worker of the Run that is `reclaimable`, `release_pending`, or `release_unknown`, each exactly as `worker-release` would: the final screen is archived, then the tab closes only if pod created it. Retained workers are kept, because retain is a choice already made, and active workers are still working; both are listed in `kept` with their reason. Without `--run` the Run bound to the caller's terminal is swept. `check --wait` runs the acknowledged subset of this sweep on its own before it blocks (config `release_on_wait`), so `worker-gc` is for the rest: workers stopped or abandoned without a report, and whatever `worker-list --terminal-state reclaimable` still returns.
 
 ```json
 {"runId": "run_8f2c1a", "released": [{"dispatchId": "ctx_9d41e7", "state": "released", "outcome": "released", "closedTabs": ["t_7"], "closedPanes": [], "leftAlone": [], "...": "a worker-release receipt"}],

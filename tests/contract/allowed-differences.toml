@@ -423,6 +423,12 @@ difference = "Documented pod shape: the coordinator check receipt is the Deliver
 
 [[allow]]
 command = "check"
+path = "$.released"
+kind = "extra"
+difference = "Documented pod shape: check --wait first releases the workers whose worker_done was acknowledged and lists them (spec 7.4, commands-messages.md)"
+
+[[allow]]
+command = "check"
 path = "$.runId"
 kind = "missing"
 difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"

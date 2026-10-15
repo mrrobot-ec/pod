@@ -909,7 +909,19 @@ fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
     )
     .unwrap();
 
-    let receipt = lifecycle::gc(&env.engine, Some(&run)).unwrap();
+    // The pass `check --wait` runs releases only acknowledged reports; a
+    // worker settled without one keeps its pane until a manual sweep.
+    let cautious = lifecycle::gc(&env.engine, Some(&run), true).unwrap();
+    assert!(cautious.released.is_empty(), "{cautious:?}");
+    assert!(
+        cautious
+            .kept
+            .iter()
+            .any(|row| row.dispatch_id == done.dispatch_id
+                && row.reason == "report_not_acknowledged"),
+        "{cautious:?}"
+    );
+    let receipt = lifecycle::gc(&env.engine, Some(&run), false).unwrap();
     assert_eq!(receipt.run_id, run);
     assert_eq!(
         receipt
@@ -939,7 +951,7 @@ fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
     assert_eq!(kept_ids, expected);
 
     // A second sweep, on the bound Run by default, finds nothing to release.
-    let again = lifecycle::gc(&env.engine, None).unwrap();
+    let again = lifecycle::gc(&env.engine, None, false).unwrap();
     assert_eq!(again.run_id, run);
     assert!(again.released.is_empty(), "{again:?}");
     assert_eq!(again.kept.len(), 2);

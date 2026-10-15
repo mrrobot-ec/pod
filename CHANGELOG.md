@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `pod status` reports the bound Run's workers: `counts` by terminal state and `stalled`, the workers that look stuck (`stale`, or idle at a prompt with an open Dispatch), each with its `nextAction`.
+
+### Changed
+
+- `check --wait` releases every worker whose `worker_done` the coordinator has acknowledged before it blocks, closing the tab pod created, and lists them in `released`; config `release_on_wait = false` turns it off. Finished panes no longer wait for a `worker-release` nobody runs.
+- A heartbeat is stored already read: it updates the Dispatch and shows in `inbox --full` and on the board, but no `check` returns it, no wait ends on it, and nothing is nudged for it. Every batch used to carry heartbeats the coordinator had to acknowledge by hand.
+
 ## [0.2.6] - 2026-10-15
 
 ### Added

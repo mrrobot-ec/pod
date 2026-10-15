@@ -93,7 +93,7 @@ The `store` check names the store's schema version and this binary's, and never 
 
 ### `pod status`
 
-Reports pod's own state: version, resolved paths, store health, herdr reachability, and the bound Run (spec section 6). The `session` field is added here because paths are per session. Read-only.
+Reports pod's own state: version, resolved paths, store health, herdr reachability, and the bound Run (spec section 6). The `session` field is added here because paths are per session. With a bound Run and herdr reachable it adds `workers`: `counts` by terminal state and `stalled`, the workers that look stuck, each `{dispatchId, handle, reason, nextAction}` with `reason` `stale` (no heartbeat, activity, or message for 10 minutes) or `idle_with_open_dispatch` (sitting at a prompt while its Dispatch is still open). Read-only.
 
 ```json
 {"version": "0.1.0", "session": "default", "stateDir": "/Users/me/.local/state/pod/default",

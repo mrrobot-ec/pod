@@ -548,7 +548,7 @@ fn accept_lifecycle(
     }
 
     let mailbox = format!("run:{}", dispatch.run_id);
-    let row = message_row(
+    let mut row = message_row(
         &dispatch.run_id,
         mailbox.clone(),
         handle,
@@ -558,6 +558,14 @@ fn accept_lifecycle(
         Some(&dispatch.id),
         now,
     );
+    // A heartbeat is evidence, not mail (spec 8.1): its work is the Dispatch
+    // update above. It is stored read, for `inbox --full` and the board, so
+    // it never lands in a Delivery, ends a wait, or nudges anyone (every
+    // batch carried heartbeats the coordinator had to acknowledge by hand).
+    if input.r#type == "heartbeat" {
+        row.read = true;
+        row.delivered_at = Some(now);
+    }
     messages::insert(tx, &row)?;
     Ok(SendOutcome::Stored(SendReceipt {
         message_ids: vec![row.id],
