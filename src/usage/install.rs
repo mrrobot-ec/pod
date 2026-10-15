@@ -84,8 +84,20 @@ fn read_settings(settings: &Path) -> Result<Value> {
     }
 }
 
+/// Whether the tab bar runs `pod usage --tick`: the entry that shows usage
+/// and, every 30 seconds, runs the wake ladder pass nobody else would (8.2).
 pub fn herdr_bar_installed(config: &Path) -> bool {
-    read_config(config).is_ok_and(|document| bar_entry_present(&document, "pod usage"))
+    read_config(config).is_ok_and(|document| bar_entry_present(&document, "pod usage --tick"))
+}
+
+/// Whether the tab bar runs `pod usage` without `--tick`: an entry written
+/// before 0.2.0 that shows usage but never ticks the ladder, so a nudge that
+/// found "not now" waits for the next hook or command instead of the clock.
+pub fn herdr_bar_without_tick(config: &Path) -> bool {
+    read_config(config).is_ok_and(|document| {
+        bar_entry_present(&document, "pod usage")
+            && !bar_entry_present(&document, "pod usage --tick")
+    })
 }
 
 /// Adds a `pod usage` command entry to the tab bar's right side and a

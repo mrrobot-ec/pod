@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+### Changed
+
+- `pod doctor`'s `usage` check warns when herdr's tab bar runs `pod usage` without `--tick`: an entry from before 0.2.0 shows usage but never runs the ladder pass that retries a nudge when nobody waits. `pod usage --install` rewrites it in place.
+
 ### Fixed
 
 - Mail that landed while the coordinator was busy, or while a person was typing in its pane, could sit unread for good: the commit's attempt was recorded `skipped`, so the coordinator's next idle hook, inside the ladder's minute, was refused, and with no tick or later command nothing retried it (a `worker_done` seen live 2026-10-15). A trigger that finds the recipient working, its pane not yet proven quiet, or a wake in flight now records nothing, whatever the trigger: the ladder keeps its position and the next eligible trigger nudges at once. Only typed nudges, failed inputs, and skips for a recipient pod could not reach count toward `unreachable`, and every mutating command retries every mailbox of the Run with unread mail not already in an outstanding Delivery.

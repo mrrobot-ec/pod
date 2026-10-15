@@ -16,8 +16,8 @@ use crate::error::{PodError, Result};
 
 pub use codex::{codex_from_rate_limits, read_codex};
 pub use install::{
-    InstallOutcome, claude_statusline_installed, herdr_bar_installed, install_claude_statusline,
-    install_herdr_bar,
+    InstallOutcome, claude_statusline_installed, herdr_bar_installed, herdr_bar_without_tick,
+    install_claude_statusline, install_herdr_bar,
 };
 
 /// Data older than this shows its age on the bar.

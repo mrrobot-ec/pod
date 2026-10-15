@@ -167,12 +167,18 @@ pub fn run_with(
 }
 
 /// `usage`: whether Claude Code's status line and herdr's tab bar run
-/// `pod usage`. A warning, never a failure: nothing else depends on it.
+/// `pod usage`, the bar with `--tick` so the wake ladder has a clock when
+/// nobody waits (8.2). A warning, never a failure: nothing else depends on it.
 fn usage_check(paths: &Paths) -> Check {
     let statusline = crate::usage::claude_statusline_installed(&paths.claude_settings);
     let bar = crate::usage::herdr_bar_installed(&paths.herdr_config);
     let detail = match (statusline, bar) {
         (true, true) => "status line and tab bar wired".to_owned(),
+        (_, false) if crate::usage::herdr_bar_without_tick(&paths.herdr_config) => format!(
+            "herdr tab bar runs `pod usage` without `--tick`, so no clock retries a nudge \
+             when nobody waits ({}); run `pod usage --install`",
+            paths.herdr_config.display()
+        ),
         (false, true) => format!(
             "Claude status line not wired ({}); run `pod usage --install`",
             paths.claude_settings.display()

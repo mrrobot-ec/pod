@@ -214,7 +214,24 @@ fn usage_check_warns_until_the_status_line_and_bar_are_wired() {
 
     pod::usage::install_claude_statusline(&env.engine.paths.claude_settings, "pod usage --record")
         .unwrap();
+    // A bar entry from before `--tick` shows usage but never ticks the
+    // ladder (seen live 2026-10-15): a warning that names the flag.
     pod::usage::install_herdr_bar(&env.engine.paths.herdr_config, "pod usage").unwrap();
+    let report = doctor::run_with(
+        &env.engine.paths,
+        &*env.herdr,
+        &config,
+        &probes(Ok(HERDR_STATUS_BOTH), true),
+    );
+    let check = report.checks.iter().find(|c| c.name == "usage").unwrap();
+    assert_eq!(check.status, "warn");
+    assert!(
+        check.detail.contains("without `--tick`") && check.detail.contains("pod usage --install"),
+        "{}",
+        check.detail
+    );
+
+    pod::usage::install_herdr_bar(&env.engine.paths.herdr_config, "pod usage --tick").unwrap();
     let report = doctor::run_with(
         &env.engine.paths,
         &*env.herdr,
