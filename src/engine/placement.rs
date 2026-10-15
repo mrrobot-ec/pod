@@ -170,6 +170,8 @@ pub fn place(
 
 /// An existing worktree gets a new tab (spec 7.2): the tab herdr returns from
 /// `worktree.open` may be one the user already works in, so it is never used.
+/// The open names the worktree's own folder as `cwd`, like the listing above,
+/// so herdr searches that repository and not its focused workspace's.
 fn opened(engine: &Engine, kind: &Worktree, path: &Path) -> Result<Placement> {
     let info = engine.herdr.worktree_open(path)?;
     Ok(Placement {

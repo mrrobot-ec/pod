@@ -167,6 +167,9 @@ pub trait Herdr: Send + Sync {
     /// workspace, whatever the person is looking at, which may be no
     /// repository at all.
     fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>>;
+    /// Opens the worktree at `path` (herdr's `worktree.open` with `cwd` set
+    /// to that same folder, so herdr searches the worktree's own repository
+    /// and not its focused workspace's).
     fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo>;
     fn agent_start(
         &self,

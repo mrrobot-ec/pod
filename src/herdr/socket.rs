@@ -422,9 +422,14 @@ impl Herdr for SocketHerdr {
     }
 
     fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo> {
+        // `cwd` names the repository herdr searches for `path`. Without it
+        // herdr searches its focused workspace's repository, whatever the
+        // person is looking at (seen live 2026-10-15: `worktree_not_found`
+        // for a valid worktree of another repository, and git's "not a git
+        // repository" while the focused folder was none).
         let result = self.expected_within(
             "worktree.open",
-            json!({"path": path, "focus": false, "trust_repository": false}),
+            json!({"cwd": path, "path": path, "focus": false, "trust_repository": false}),
             "worktree_opened",
             WORKTREE_TIMEOUT,
         )?;

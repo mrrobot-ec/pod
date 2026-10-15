@@ -59,8 +59,8 @@ next_steps: ["herdr status server"] }`, except:
 | `workspace_get` | `workspace.get {workspace_id}` → ID, label, and optional worktree checkout path; confirmed missing targets are `None`. |
 | `workspace_report_metadata` | `workspace.report_metadata {workspace_id,source:"pod",tokens:{status}}` → `ok`. |
 | `worktree_create` | `worktree.create` with `cwd=repo`, `branch=name`, optional `base` and `label`, `focus=false`, `trust_repository=false` → workspace, worktree, tab, and root-pane IDs. Protocol 22 has no comment field. |
-| `worktree_list` | `worktree.list {trust_repository:false}` → paths, branches, and optional open workspace IDs. `worker-start` matches `branch:<name>` against both `<name>` and `refs/heads/<name>` before opening its listed path. List rows have no tab or pane, so those fields are empty until open. |
-| `worktree_open` | `worktree.open {path,focus:false,trust_repository:false}` → workspace, worktree, tab, and root-pane IDs. |
+| `worktree_list` | `worktree.list {cwd,trust_repository:false}` → paths, branches, and optional open workspace IDs. `worker-start` matches `branch:<name>` against both `<name>` and `refs/heads/<name>` before opening its listed path. List rows have no tab or pane, so those fields are empty until open. |
+| `worktree_open` | `worktree.open {cwd:path,path,focus:false,trust_repository:false}` → workspace, worktree, tab, and root-pane IDs. Both calls name the folder whose repository herdr should look at; without `cwd` herdr looks at its focused workspace's, whatever the person is viewing. |
 | `agent_start` | `agent.start {name,kind,pane_id,args,timeout_ms}` → `agent_started.agent`; then `pane.process_info` supplies the foreground PID. |
 | `agent_get` | `agent.get {target}` → `agent_info.agent`; confirmed missing targets are `None`. |
 | `agent_list` | `agent.list {}` → each `agent_list.agents[]`, with `pane.process_info` supplying its PID. |

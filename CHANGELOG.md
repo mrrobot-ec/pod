@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `worker-start --worktree path:<folder>` still failed at `placement` in 0.2.3 for a worktree of another repository, now with `worktree path not found`, or with `fatal: not a git repository` while the focused folder was no repository: the listing named the target's repository, but the `worktree.open` that followed did not, so herdr searched its focused workspace's repository for the path (seen live 2026-10-15, two starts in a row). The open now names the target's own folder too.
+
 ## [0.2.3] - 2026-10-15
 
 ### Changed

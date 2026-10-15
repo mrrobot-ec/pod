@@ -639,3 +639,71 @@ fn socket_tab_create_sends_env_and_metadata_clears_with_null() {
         json!({"title": "pod: decision", "body": "Ship or wait?", "sound": "request"})
     );
 }
+
+#[test]
+fn socket_worktree_calls_name_the_folder_as_cwd() {
+    // herdr resolves both calls against the repository containing `cwd`.
+    // Without one it looks at its focused workspace's repository, whatever
+    // the person is viewing (seen live 2026-10-15: `worktree_not_found` for
+    // a valid worktree of another repository).
+    let server = MockServer::one(|request| {
+        json!({
+            "id": request["id"],
+            "result": {
+                "type": "worktree_opened",
+                "already_open": false,
+                "workspace": {"workspace_id": "wH", "label": "mb-1"},
+                "tab": {"tab_id": "wH:t1", "label": "1"},
+                "root_pane": {"pane_id": "wH:p1", "terminal_id": "term_1", "workspace_id": "wH"},
+                "worktree": {"path": "/repo/.wt/mb-1", "branch": "feat/mb-1"}
+            }
+        })
+    });
+    let herdr = SocketHerdr::connect(server.path()).expect("connect socket client");
+    let opened = herdr
+        .worktree_open(Path::new("/repo/.wt/mb-1"))
+        .expect("worktree opened");
+    assert_eq!(
+        (
+            opened.workspace_id.as_str(),
+            opened.tab_id.as_str(),
+            opened.pane_id.as_str(),
+            opened.branch.as_str()
+        ),
+        ("wH", "wH:t1", "wH:p1", "feat/mb-1")
+    );
+    let request: Value = serde_json::from_str(&server.request()).expect("request JSON");
+    assert_eq!(request["method"], "worktree.open");
+    assert_eq!(
+        request["params"],
+        json!({
+            "cwd": "/repo/.wt/mb-1",
+            "path": "/repo/.wt/mb-1",
+            "focus": false,
+            "trust_repository": false
+        })
+    );
+
+    let server = MockServer::one(|request| {
+        json!({
+            "id": request["id"],
+            "result": {
+                "type": "worktree_list",
+                "worktrees": [{"path": "/repo", "branch": "main", "open_workspace_id": "w1"}]
+            }
+        })
+    });
+    let herdr = SocketHerdr::connect(server.path()).expect("connect socket client");
+    let listed = herdr
+        .worktree_list(Some(Path::new("/repo/.wt/mb-1")))
+        .expect("worktrees listed");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, Path::new("/repo"));
+    assert_eq!(listed[0].workspace_id, "w1");
+    let request: Value = serde_json::from_str(&server.request()).expect("request JSON");
+    assert_eq!(request["method"], "worktree.list");
+    assert_eq!(
+        request["params"],
+        json!({"cwd": "/repo/.wt/mb-1", "trust_repository": false})
+    );
+}
