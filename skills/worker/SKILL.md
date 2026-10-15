@@ -1,6 +1,6 @@
 ---
 name: pod-worker
-description: Work as a pod-dispatched worker inside herdr: report progress, ask the coordinator, and finish with worker_done. Use when your brief mentions pod.
+description: "Work as a pod-dispatched worker inside herdr: report progress, ask the coordinator, and finish with worker_done. Use when your brief mentions pod."
 ---
 
 # pod worker

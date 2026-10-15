@@ -1,6 +1,6 @@
 ---
 name: pod-coordinator
-description: Coordinate supervised multi-agent work with pod inside herdr: runs, tasks, workers, messages, gates. Use when you dispatch or supervise workers.
+description: "Coordinate supervised multi-agent work with pod inside herdr: runs, tasks, workers, messages, gates. Use when you dispatch or supervise workers."
 ---
 
 # pod coordinator
