@@ -83,7 +83,10 @@ pub fn place(
             repo: None,
         }),
         Worktree::NewChild | Worktree::NewTopLevel => {
-            let repo = resolve_repo(engine, options.repo, coordinator_path)?;
+            let repo = source_checkout(
+                engine,
+                &resolve_repo(engine, options.repo, coordinator_path)?,
+            )?;
             let name = options.name.expect("validated name");
             let configured = engine.config.repos.get(&repo);
             let base_branch = match worktree {
@@ -121,16 +124,16 @@ pub fn place(
             })
         }
         Worktree::Path(path) => {
-            // herdr lists the worktrees of the repository containing the
-            // folder it is given. Asked without one it answers for its
-            // focused workspace, whatever the person is looking at, which may
-            // be no repository (seen live 2026-10-15: four starts failed with
-            // git's "not a git repository" for the focused folder while every
-            // target was a valid worktree).
-            let tracked = match engine.herdr.worktree_list(Some(path)) {
-                Ok(known) => known.iter().any(|known| known.path == *path),
+            // herdr lists the repository containing the folder it is given.
+            // Asked without one it answers for its focused workspace,
+            // whatever the person is looking at, which may be no repository
+            // (seen live 2026-10-15: four starts failed with git's "not a git
+            // repository" for the focused folder while every target was a
+            // valid worktree).
+            let listing = match engine.herdr.worktree_list(Some(path)) {
+                Ok(listing) => Some(listing),
                 // The target itself is no repository: a plain folder.
-                Err(error) if error.message.contains("not a git repository") => false,
+                Err(error) if error.message.contains("not a git repository") => None,
                 Err(error) => {
                     return Err(at_step(
                         &format!("herdr worktree.list in {}", path.display()),
@@ -138,15 +141,17 @@ pub fn place(
                     ));
                 }
             };
-            if tracked {
-                opened(engine, worktree, path)
-            } else {
-                folder(engine, worktree, path)
+            match listing {
+                Some(listing) if listing.worktrees.iter().any(|known| known.path == *path) => {
+                    let source = listing.source_checkout.as_deref().unwrap_or(path);
+                    opened(engine, worktree, path, source)
+                }
+                _ => folder(engine, worktree, path),
             }
         }
         Worktree::Branch(branch) => {
             let qualified = format!("refs/heads/{branch}");
-            let path = engine
+            let listing = engine
                 .herdr
                 .worktree_list(Some(coordinator_path))
                 .map_err(|error| {
@@ -154,26 +159,48 @@ pub fn place(
                         &format!("herdr worktree.list in {}", coordinator_path.display()),
                         error,
                     )
-                })?
-                .into_iter()
+                })?;
+            let path = listing
+                .worktrees
+                .iter()
                 .find(|worktree| worktree.branch == *branch || worktree.branch == qualified)
-                .map(|worktree| worktree.path)
+                .map(|worktree| worktree.path.clone())
                 .ok_or_else(|| {
                     PodError::usage(format!(
                         "no existing worktree was found for branch {branch}"
                     ))
                 })?;
-            opened(engine, worktree, &path)
+            let source = listing.source_checkout.as_deref().unwrap_or(&path);
+            opened(engine, worktree, &path, source)
         }
     }
 }
 
+/// The folder herdr starts worktree actions from: the source checkout of the
+/// repository containing `folder`, as herdr's own listing names it. herdr
+/// refuses a linked worktree as the start (`linked_worktree_source`, seen
+/// live 2026-10-15 for two starts whose target was a worktree of another
+/// repository), so a coordinator inside a linked worktree still creates and
+/// opens from the parent. A repository herdr names no source for is used as
+/// given.
+fn source_checkout(engine: &Engine, folder: &Path) -> Result<PathBuf> {
+    let listing = engine.herdr.worktree_list(Some(folder)).map_err(|error| {
+        at_step(
+            &format!("herdr worktree.list in {}", folder.display()),
+            error,
+        )
+    })?;
+    Ok(listing
+        .source_checkout
+        .unwrap_or_else(|| folder.to_path_buf()))
+}
+
 /// An existing worktree gets a new tab (spec 7.2): the tab herdr returns from
 /// `worktree.open` may be one the user already works in, so it is never used.
-/// The open names the worktree's own folder as `cwd`, like the listing above,
-/// so herdr searches that repository and not its focused workspace's.
-fn opened(engine: &Engine, kind: &Worktree, path: &Path) -> Result<Placement> {
-    let info = engine.herdr.worktree_open(path)?;
+/// The open starts from `source`, the repository's source checkout, so herdr
+/// searches that repository and not its focused workspace's.
+fn opened(engine: &Engine, kind: &Worktree, path: &Path, source: &Path) -> Result<Placement> {
+    let info = engine.herdr.worktree_open(path, source)?;
     Ok(Placement {
         kind: kind.clone(),
         workspace_id: info.workspace_id,

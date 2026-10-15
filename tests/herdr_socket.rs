@@ -645,7 +645,9 @@ fn socket_worktree_calls_name_the_folder_as_cwd() {
     // herdr resolves both calls against the repository containing `cwd`.
     // Without one it looks at its focused workspace's repository, whatever
     // the person is viewing (seen live 2026-10-15: `worktree_not_found` for
-    // a valid worktree of another repository).
+    // a valid worktree of another repository), and the open must start from
+    // the source checkout the listing names: a linked worktree is refused
+    // (`linked_worktree_source`).
     let server = MockServer::one(|request| {
         json!({
             "id": request["id"],
@@ -661,7 +663,7 @@ fn socket_worktree_calls_name_the_folder_as_cwd() {
     });
     let herdr = SocketHerdr::connect(server.path()).expect("connect socket client");
     let opened = herdr
-        .worktree_open(Path::new("/repo/.wt/mb-1"))
+        .worktree_open(Path::new("/repo/.wt/mb-1"), Path::new("/repo"))
         .expect("worktree opened");
     assert_eq!(
         (
@@ -677,7 +679,7 @@ fn socket_worktree_calls_name_the_folder_as_cwd() {
     assert_eq!(
         request["params"],
         json!({
-            "cwd": "/repo/.wt/mb-1",
+            "cwd": "/repo",
             "path": "/repo/.wt/mb-1",
             "focus": false,
             "trust_repository": false
@@ -689,6 +691,7 @@ fn socket_worktree_calls_name_the_folder_as_cwd() {
             "id": request["id"],
             "result": {
                 "type": "worktree_list",
+                "source": {"repo_root": "/repo", "source_checkout_path": "/repo"},
                 "worktrees": [{"path": "/repo", "branch": "main", "open_workspace_id": "w1"}]
             }
         })
@@ -697,9 +700,10 @@ fn socket_worktree_calls_name_the_folder_as_cwd() {
     let listed = herdr
         .worktree_list(Some(Path::new("/repo/.wt/mb-1")))
         .expect("worktrees listed");
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].path, Path::new("/repo"));
-    assert_eq!(listed[0].workspace_id, "w1");
+    assert_eq!(listed.source_checkout.as_deref(), Some(Path::new("/repo")));
+    assert_eq!(listed.worktrees.len(), 1);
+    assert_eq!(listed.worktrees[0].path, Path::new("/repo"));
+    assert_eq!(listed.worktrees[0].workspace_id, "w1");
     let request: Value = serde_json::from_str(&server.request()).expect("request JSON");
     assert_eq!(request["method"], "worktree.list");
     assert_eq!(

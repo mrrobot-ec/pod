@@ -68,6 +68,17 @@ pub struct WorktreeInfo {
     pub pane_id: String,
 }
 
+/// What herdr's `worktree.list` answers for a folder: the repository's
+/// source checkout, the folder herdr starts every worktree action from, and
+/// the worktrees it tracks. herdr refuses a linked worktree as the starting
+/// point (`linked_worktree_source`), so a start from inside one names the
+/// source checkout instead.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorktreeListing {
+    pub source_checkout: Option<PathBuf>,
+    pub worktrees: Vec<WorktreeInfo>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
@@ -162,15 +173,16 @@ pub trait Herdr: Send + Sync {
     /// sound name such as `request`.
     fn notification_show(&self, title: &str, body: Option<&str>, sound: &str) -> Result<()>;
     fn worktree_create(&self, req: &WorktreeCreate) -> Result<WorktreeInfo>;
-    /// The worktrees of the repository containing `cwd` (herdr's
-    /// `worktree.list` with `cwd`). Without one herdr answers for its focused
-    /// workspace, whatever the person is looking at, which may be no
-    /// repository at all.
-    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>>;
-    /// Opens the worktree at `path` (herdr's `worktree.open` with `cwd` set
-    /// to that same folder, so herdr searches the worktree's own repository
-    /// and not its focused workspace's).
-    fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo>;
+    /// The repository containing `cwd`: its source checkout and its
+    /// worktrees (herdr's `worktree.list` with `cwd`). Without one herdr
+    /// answers for its focused workspace, whatever the person is looking at,
+    /// which may be no repository at all.
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<WorktreeListing>;
+    /// Opens the worktree at `path` (herdr's `worktree.open`), starting from
+    /// `source`, the repository's source checkout: herdr searches that
+    /// repository for the path, not its focused workspace's, and refuses to
+    /// start from a linked worktree.
+    fn worktree_open(&self, path: &Path, source: &Path) -> Result<WorktreeInfo>;
     fn agent_start(
         &self,
         name: &str,

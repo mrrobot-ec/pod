@@ -2,7 +2,7 @@
 
 Commands follow spec section 6. This page covers conventions, Environment, Runs, Tasks, Gates, and Recovery. The rest are split out:
 
-- [Workers and low-level dispatch](commands-workers.md): `worker-start`, `worker-show`, `worker-read`, `worker-list`, `worker-stop`, `worker-abandon`, `worker-retain`, `worker-release`, `dispatch`, `dispatch-show`
+- [Workers and low-level dispatch](commands-workers.md): `worker-start`, `worker-show`, `worker-read`, `worker-list`, `worker-stop`, `worker-abandon`, `worker-retain`, `worker-release`, `worker-gc`, `dispatch`, `dispatch-show`
 - [Messages](commands-messages.md): `send`, `check`, `ask`, `reply`, `inbox`
 
 The spec fixes command names, flags, and the field names it mentions, but not full receipt layouts. Receipts use spec-named fields exactly and take the rest of their shape from the data model in spec section 5. The JSON examples on these pages match pod's output. The contract tests (spec section 17) compare the receipts with Orca's, and each difference from Orca is listed, with its reason, in `tests/contract/allowed-differences.toml`.
@@ -64,7 +64,7 @@ Two values on [errors.md](errors.md) are reported in a receipt, not in the error
 | Value | Returned by |
 |---|---|
 | `settled` (with `duplicate: true`) | `send --type worker_done` (repeat with the same outcome), exit 0 |
-| `dispatched_unobserved` | `worker-start`, `dispatch --inject`, exit 1 |
+| `dispatched_unobserved` | `worker-start`, `dispatch`, exit 1 |
 
 ## Environment
 
@@ -112,7 +112,7 @@ Errors: usage error (exit 2) for any name other than `coordinator` or `worker`. 
 
 ### `pod log --run <id> [--follow [--timeout-ms <n>]]`
 
-Prints the Run's `events` rows in `sequence` order, each with the columns of the `events` table: `{sequence, at, type, task_id, dispatch_id, actor, detail}`. Read-only. `--run` is required. With `--follow` it is a feed instead of a receipt: the events so far, one per line, then each new event as it is appended (within a second of its commit), until `--timeout-ms` (default ten minutes) elapses; exit 0 on the timeout. With `--json` each line is one event object, otherwise `at type actor task dispatch detail`. pod writes these types, one module per action: `run.created`, `run.used`, `task.created`, `task.ready`, `task.updated`, `gate.created`, `gate.resolved`, `dispatch.completed` and `dispatch.failed` (from settling a `worker_done`; `dispatch.failed` also from a `worker-stop` or `worker-abandon` fence, with `termination_reason: canceled`, same detail `{termination_reason, termination_target, dispatch_status, task_status}`), `mailbox.consumed` (every consuming `check`; detail `{mailbox, delivery_id, consumer}`; it clears the mailbox's wake ladder), and `mailbox.unreachable` (the fifth unconsumed nudge attempt on the Run mailbox; detail `{mailbox, attempts, nextAction}`; the board exports it so the person sees that the coordinator is not reading its mail). The worker lifecycle adds `dispatch.dispatched` (a start or `dispatch` reached Record), `dispatch.start_failed` (a start or `dispatch --inject` failed; detail `{stage, failure_count, dispatch_status, error}`), and `worker.user_owned` (retain, or a pane closed outside pod; detail `{reason}`). Each action writes its events once, from one module.
+Prints the Run's `events` rows in `sequence` order, each with the columns of the `events` table: `{sequence, at, type, task_id, dispatch_id, actor, detail}`. Read-only. `--run` is required. With `--follow` it is a feed instead of a receipt: the events so far, one per line, then each new event as it is appended (within a second of its commit), until `--timeout-ms` (default ten minutes) elapses; exit 0 on the timeout. With `--json` each line is one event object, otherwise `at type actor task dispatch detail`. pod writes these types, one module per action: `run.created`, `run.used`, `task.created`, `task.ready`, `task.updated`, `gate.created`, `gate.resolved`, `dispatch.completed` and `dispatch.failed` (from settling a `worker_done`; `dispatch.failed` also from a `worker-stop` or `worker-abandon` fence, with `termination_reason: canceled`, same detail `{termination_reason, termination_target, dispatch_status, task_status}`), `mailbox.consumed` (every consuming `check`; detail `{mailbox, delivery_id, consumer}`; it clears the mailbox's wake ladder), and `mailbox.unreachable` (the fifth unconsumed nudge attempt on the Run mailbox; detail `{mailbox, attempts, nextAction}`; the board exports it so the person sees that the coordinator is not reading its mail). The worker lifecycle adds `dispatch.dispatched` (a start or `dispatch` reached Record), `dispatch.start_failed` (a start or `dispatch` failed; detail `{stage, failure_count, dispatch_status, error}`), and `worker.user_owned` (retain, or a pane closed outside pod; detail `{reason}`). Each action writes its events once, from one module.
 
 ```json
 {"events": [

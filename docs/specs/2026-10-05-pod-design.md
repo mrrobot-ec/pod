@@ -298,8 +298,8 @@ exit 1 for a refused or failed operation, 2 for a usage error.
 | Environment | `doctor`, `status`, `skills get <coordinator\|worker> [--reference <name>] [--full]`, `log --run <id>`, `board [--run <id>]`, `hook <startup\|event>` |
 | Runs | `run-create --objective`, `run-use --id`, `run-current`, `run-list`, `run-show --id` |
 | Tasks | `task-create --spec [--task-title] [--display-name] [--deps <json>] [--parent]`, `task-list [--status] [--ready] [--brief]`, `task-update --id --status [--result <json>]` |
-| Workers | `worker-start`, `worker-show --dispatch`, `worker-read --dispatch`, `worker-list`, `worker-stop --dispatch`, `worker-abandon --dispatch`, `worker-retain --dispatch`, `worker-release --dispatch` |
-| Low level | `dispatch --task --to <handle> [--inject] [--dry-run] [--return-preamble]`, `dispatch-show --task` |
+| Workers | `worker-start`, `worker-show --dispatch`, `worker-read --dispatch`, `worker-list`, `worker-stop --dispatch`, `worker-abandon --dispatch`, `worker-retain --dispatch`, `worker-release --dispatch`, `worker-gc [--run]` |
+| Low level | `dispatch --task --to <handle> [--no-inject] [--dry-run] [--return-preamble]`, `dispatch-show --task` |
 | Messages | `send`, `check`, `ask [--to dispatch:<id>]`, `reply --id --body`, `inbox [--limit] [--terminal] [--full]` |
 | Gates | `gate-create [--for coordinator\|user] [--task] --question [--options <json>] [--evidence] [--recommendation]`, `gate-resolve --id --resolution`, `gate-list [--task]` |
 | Recovery | `request-show --request <id>`, `reset --scope <run:id\|all> [--force]` |
@@ -396,6 +396,11 @@ The worker's tab is labelled `<handle> · <task title>` and relabelled on reuse.
   `--comment`, `--setup`) are rejected for `current` and existing worktrees.
 - Worktrees are created through `herdr worktree create`. **pod never removes,
   cleans, or commits in a worktree.**
+- Every worktree action starts from the repository's source checkout, the
+  folder herdr's own listing names for any folder inside the repository.
+  herdr refuses a linked worktree as a starting point, so a coordinator that
+  sits in one still creates and opens from the parent, and a `path:` target
+  in another repository opens from that repository's checkout.
 - A fresh worker means a fresh agent pane, not a new worktree. Create a worktree
   only when asked or when a concrete filesystem conflict makes sharing unsafe.
 
@@ -414,8 +419,10 @@ release.
   from its active Dispatch. It ends the attempt and updates the Task under 7.5;
   a retryable failure can return the Task to `ready`. Looking idle is never completion.
 - After an accepted `worker_done`, the coordinator does exactly one of:
-  - **Reuse:** `worker-start --task <next> --terminal <handle>` - same pane,
-    same agent context; cleanup ownership moves to the new Dispatch.
+  - **Reuse:** `worker-start --task <next> --terminal <handle>`, or
+    `dispatch --task <next> --to <handle>` for a retained worker - same pane,
+    same agent context, the brief typed in; cleanup ownership moves to the
+    new Dispatch and the worker that last held the pane is released.
   - **Retain:** `worker-retain` - keep the pane, with a recorded reason.
   - **Release:** `worker-release` - archive the final screen text, then close
     the worker's tab only if pod created it. Reused, pre-existing, setup,
@@ -423,6 +430,9 @@ release.
     Safe to call again.
 - `worker-stop` fences the Dispatch and closes only the exact supervised agent
   pane. `worker-abandon` fences the Dispatch and touches no process.
+- `worker-gc` releases every `reclaimable` worker of the Run (and retries
+  `release_pending` and `release_unknown`) under the release rules in one
+  call; retained and active workers are kept and listed with their reason.
 - If the user closes a worker pane, pod treats the pane as user-owned from
   then on. A pane a person types into is left alone, not taken over: the
   screen read before a prompt or paste (8.2) finds text on the input line that
@@ -443,7 +453,7 @@ release.
   failed Dispatch, except with `--reason denied` or `canceled`, which fail the
   Task directly because a retry is pointless; these two reports do not increment
   `failure_count` and leave the Dispatch `failed`, not `circuit_broken`.
-- A failed `dispatch --inject` counts toward the breaker.
+- A failed `dispatch` injection counts toward the breaker.
 
 ### 7.6 Liveness and attention
 

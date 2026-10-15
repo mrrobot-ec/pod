@@ -214,6 +214,64 @@ fn path_placement_lists_the_targets_repository_not_the_focused_workspace() {
     );
 }
 
+/// herdr refuses a linked worktree as the start of a worktree action
+/// (`linked_worktree_source`, seen live 2026-10-15), so a new worktree is
+/// created from, and an existing one opened from, the source checkout its
+/// listing names, wherever the coordinator or the target sits.
+#[test]
+fn worktree_actions_start_from_the_source_checkout_herdr_names() {
+    let (env, _run, _task) = seeded();
+    let main = env.tmp.path().join("api-service");
+    let linked = env.tmp.path().join("api-service-wt");
+    std::fs::create_dir_all(&main).unwrap();
+    std::fs::create_dir_all(linked.join(".git")).unwrap();
+    env.herdr.set_worktree_source(&main);
+    env.herdr.add_worktree(&linked, "refs/heads/feature");
+
+    // A new worktree, created by a coordinator sitting in the linked worktree.
+    let options = CreationOptions {
+        name: Some("child"),
+        ..CreationOptions::default()
+    };
+    let placed =
+        placement::place(&env.engine, &Worktree::NewChild, &options, "ws", &linked).unwrap();
+    assert_eq!(placed.repo.as_deref(), Some(main.as_path()));
+    let calls = env.herdr.calls();
+    assert!(
+        calls.contains(&format!(
+            "worktree_create:child:api-service/child:{}",
+            main.display()
+        )),
+        "{calls:?}"
+    );
+
+    // An existing worktree, by path and by branch, opens from the same checkout.
+    let none = CreationOptions::default();
+    placement::place(
+        &env.engine,
+        &Worktree::Path(linked.clone()),
+        &none,
+        "ws",
+        &main,
+    )
+    .unwrap();
+    placement::place(
+        &env.engine,
+        &Worktree::Branch("feature".into()),
+        &none,
+        "ws",
+        &linked,
+    )
+    .unwrap();
+    let open = format!("worktree_open:{}:{}", linked.display(), main.display());
+    let calls = env.herdr.calls();
+    assert_eq!(
+        calls.iter().filter(|call| **call == open).count(),
+        2,
+        "{calls:?}"
+    );
+}
+
 #[test]
 fn new_worktree_space_is_labelled_repo_slash_name_unless_display_name_is_given() {
     let (env, run, task) = seeded();
@@ -224,7 +282,11 @@ fn new_worktree_space_is_labelled_repo_slash_name_unless_display_name_is_given()
     start.name = Some("feature-x".into());
     lifecycle::worker_start(&env.engine, start).unwrap();
     let calls = env.herdr.calls();
-    assert!(calls.contains(&"worktree_create:feature-x:api-service/feature-x".to_string()));
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.starts_with("worktree_create:feature-x:api-service/feature-x:"))
+    );
 
     let other = new_task(&env, &run, "other");
     let mut named = new_child(&env, other, run);
@@ -232,7 +294,11 @@ fn new_worktree_space_is_labelled_repo_slash_name_unless_display_name_is_given()
     named.display_name = Some("Agent svc feature y".into());
     lifecycle::worker_start(&env.engine, named).unwrap();
     let calls = env.herdr.calls();
-    assert!(calls.contains(&"worktree_create:feature-y:Agent svc feature y".to_string()));
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.starts_with("worktree_create:feature-y:Agent svc feature y:"))
+    );
 }
 
 #[test]
@@ -768,16 +834,115 @@ fn release_after_stop_does_not_mark_the_pane_user_owned() {
     assert_eq!(receipt.left_alone, ["pane_already_closed"]);
 }
 
+/// `dispatch --to` types the brief by default and takes over the pane's
+/// cleanup like reuse (spec 7.4): the worker that last held the pane is
+/// released, ownership carries, and releasing the new Dispatch closes the
+/// tab pod created. Seen live 2026-10-15: four dispatches to retained
+/// workers recorded `dispatched` while nothing reached the terminal, and
+/// every finished pane had to be closed by hand.
 #[test]
-fn release_leaves_a_pane_another_dispatch_now_uses() {
+fn dispatch_to_a_handle_injects_and_takes_over_the_pane() {
     let (env, run, task) = seeded();
     let start = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
     settle(&env, &start.dispatch_id);
+    lifecycle::retain(&env.engine, &start.dispatch_id, "keep for the next task").unwrap();
+    let typed = |calls: &[String]| {
+        calls
+            .iter()
+            .filter(|call| call.starts_with("agent_prompt:") || call.starts_with("pane_send_text:"))
+            .count()
+    };
+    let before = typed(&env.herdr.calls());
     let next = new_task(&env, &run, "follow-up");
-    lifecycle::dispatch(&env.engine, &next, &start.handle, true, false, false).unwrap();
-    let receipt = lifecycle::release(&env.engine, &start.dispatch_id).unwrap();
-    assert!(receipt.closed_tabs.is_empty());
-    assert_eq!(receipt.left_alone, ["active"]);
+    let receipt =
+        lifecycle::dispatch(&env.engine, &next, &start.handle, true, false, false).unwrap();
+    assert!(receipt.injected, "{receipt:?}");
+    assert!(
+        typed(&env.herdr.calls()) > before,
+        "{:?}",
+        env.herdr.calls()
+    );
+    let id = receipt.dispatch.as_ref().unwrap().id.clone();
+
+    let (old, new) = env
+        .engine
+        .store
+        .read(|tx| {
+            Ok((
+                workers::get(tx, &start.dispatch_id)?.unwrap(),
+                workers::get(tx, &id)?.unwrap(),
+            ))
+        })
+        .unwrap();
+    assert_eq!(old.terminal_state, "released");
+    assert!(new.owns_pane);
+    assert_eq!(new.tab_id, old.tab_id);
+    assert!(!new.user_owned);
+
+    // Releasing the old worker again changes nothing; releasing the new one,
+    // once it has finished, closes the tab.
+    let again = lifecycle::release(&env.engine, &start.dispatch_id).unwrap();
+    assert!(again.closed_tabs.is_empty());
+    settle(&env, &id);
+    let released = lifecycle::release(&env.engine, &id).unwrap();
+    assert_eq!(released.closed_tabs, vec![old.tab_id.clone().unwrap()]);
+    assert!(released.left_alone.is_empty(), "{released:?}");
+}
+
+/// `worker-gc` releases every reclaimable worker of the Run under the
+/// release rules and keeps retained and active ones, listing why.
+#[test]
+fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
+    let (env, run, task) = seeded();
+    let done = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &done.dispatch_id);
+    let kept = lifecycle::worker_start(
+        &env.engine,
+        input(new_task(&env, &run, "kept"), run.clone()),
+    )
+    .unwrap();
+    settle(&env, &kept.dispatch_id);
+    lifecycle::retain(&env.engine, &kept.dispatch_id, "user reads it").unwrap();
+    let busy = lifecycle::worker_start(
+        &env.engine,
+        input(new_task(&env, &run, "busy"), run.clone()),
+    )
+    .unwrap();
+
+    let receipt = lifecycle::gc(&env.engine, Some(&run)).unwrap();
+    assert_eq!(receipt.run_id, run);
+    assert_eq!(
+        receipt
+            .released
+            .iter()
+            .map(|worker| worker.dispatch_id.clone())
+            .collect::<Vec<_>>(),
+        vec![done.dispatch_id.clone()]
+    );
+    assert_eq!(
+        receipt.released[0].closed_tabs.len(),
+        1,
+        "{:?}",
+        receipt.released[0]
+    );
+    let mut kept_ids: Vec<(String, String)> = receipt
+        .kept
+        .iter()
+        .map(|row| (row.dispatch_id.to_string(), row.reason.clone()))
+        .collect();
+    kept_ids.sort();
+    let mut expected = vec![
+        (kept.dispatch_id.to_string(), "retained".to_owned()),
+        (busy.dispatch_id.to_string(), "active".to_owned()),
+    ];
+    expected.sort();
+    assert_eq!(kept_ids, expected);
+
+    // A second sweep, on the bound Run by default, finds nothing to release.
+    let again = lifecycle::gc(&env.engine, None).unwrap();
+    assert_eq!(again.run_id, run);
+    assert!(again.released.is_empty(), "{again:?}");
+    assert_eq!(again.kept.len(), 2);
 }
 
 #[test]

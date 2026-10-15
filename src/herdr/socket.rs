@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use super::{
     AgentInfo, AgentStatus, EventStream, Herdr, HerdrEvent, HerdrInfo, PaneInfo, ProcessInfo,
     PromptOutcome, TabInfo, WorkspaceCreated, WorkspaceInfo, WorktreeCreate, WorktreeInfo,
+    WorktreeListing,
 };
 use crate::error::{ErrorCode, PodError, Result};
 
@@ -392,20 +393,25 @@ impl Herdr for SocketHerdr {
         worktree_info(&result, "worktree.create")
     }
 
-    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<WorktreeListing> {
         let mut params = json!({"trust_repository": false});
         if let Some(cwd) = cwd {
             params["cwd"] = json!(cwd);
         }
         let result =
             self.expected_within("worktree.list", params, "worktree_list", WORKTREE_TIMEOUT)?;
+        let source_checkout = result
+            .get("source")
+            .and_then(|source| source.get("source_checkout_path"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
         let values = result
             .get("worktrees")
             .and_then(Value::as_array)
             .ok_or_else(|| {
                 herdr_error("invalid herdr worktree.list response: missing worktrees")
             })?;
-        values
+        let worktrees = values
             .iter()
             .map(|value| {
                 let worktree: WireWorktree = serde_json::from_value(value.clone())
@@ -418,18 +424,23 @@ impl Herdr for SocketHerdr {
                     pane_id: String::new(),
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        Ok(WorktreeListing {
+            source_checkout,
+            worktrees,
+        })
     }
 
-    fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo> {
-        // `cwd` names the repository herdr searches for `path`. Without it
-        // herdr searches its focused workspace's repository, whatever the
-        // person is looking at (seen live 2026-10-15: `worktree_not_found`
-        // for a valid worktree of another repository, and git's "not a git
-        // repository" while the focused folder was none).
+    fn worktree_open(&self, path: &Path, source: &Path) -> Result<WorktreeInfo> {
+        // `cwd` is the folder herdr starts from and must be the repository's
+        // source checkout. Without it herdr searches its focused workspace's
+        // repository, whatever the person is looking at (`worktree_not_found`
+        // for a worktree of another repository, git's "not a git repository"
+        // while the focused folder was none), and a linked worktree is refused
+        // as the start (`linked_worktree_source`); all seen live 2026-10-15.
         let result = self.expected_within(
             "worktree.open",
-            json!({"cwd": path, "path": path, "focus": false, "trust_repository": false}),
+            json!({"cwd": source, "path": path, "focus": false, "trust_repository": false}),
             "worktree_opened",
             WORKTREE_TIMEOUT,
         )?;

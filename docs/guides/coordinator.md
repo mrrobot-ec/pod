@@ -85,12 +85,12 @@ Put dependencies in `--deps '["task_id", ...]'` as a JSON array. A Task is creat
 
 ## Completion accounting
 
-After an accepted `worker_done`, do exactly one of these for that worker. Doing none leaves a `reclaimable` worker and an unfinished turn.
+After an accepted `worker_done`, do exactly one of these for that worker. Doing none leaves a `reclaimable` worker and an unfinished turn. After a batch of reports, `pod worker-gc` releases every reclaimable worker of the Run in one call, under the same rules as release; retained and active workers are kept and listed.
 
 | Choice | Command | Use when |
 |---|---|---|
 | Reuse | `pod worker-start --task <next> --terminal <handle>` | The next Task fits the same pane and agent context. Cleanup ownership moves to the new Dispatch. |
-| Retain | `pod worker-retain --dispatch <id>` | The pane should stay, for the user or for later. A reason is recorded. |
+| Retain | `pod worker-retain --dispatch <id>` | The pane should stay, for the user or for later. A reason is recorded. Its next Task comes through `pod worker-start --task <next> --terminal <handle>` or `pod dispatch --task <next> --to <handle>`; both type the brief into the pane and take over its cleanup. |
 | Release | `pod worker-release --dispatch <id>` | Done with the pane. The final screen text is archived for every agent kind, then pod closes the worker's tab only if pod created it (only the worker's pane if a person split another pane into that tab). Safe to call again. |
 
 Reused, pre-existing, setup, coordinator, active, user-taken-over, and unproven panes are never closed by release. If the user closes a worker pane, it is user-owned from then on; a pane a person only types into is left alone until its input is bare (attention `interruption`).
@@ -113,9 +113,9 @@ Verify before accepting. A `worker_done --outcome succeeded` is the worker's cla
 
 Other endings:
 
-- `worker-stop --dispatch <id>`: fences the Dispatch and closes only the exact supervised agent pane, and only when pod created it (a `dispatch --to` pane stays open). Use on proof of a problem.
+- `worker-stop --dispatch <id>`: fences the Dispatch and closes only the exact supervised agent pane, and only when pod created it (a pane pod did not create stays open). Use on proof of a problem.
 - `worker-abandon --dispatch <id>`: fences the Dispatch and touches no process.
-- A failed `worker_done` counts toward the circuit breaker like any other failed Dispatch, as do a failed start and a failed `dispatch --inject`. While the cumulative `failure_count` for the Task is below 3 the Task returns to `ready`; at 3 the Dispatch is `circuit_broken` and the Task is `failed`. The exception is `--reason denied` or `canceled`, which fail the Task directly without incrementing `failure_count`, leaving the Dispatch `failed` rather than `circuit_broken`, because a retry is pointless.
+- A failed `worker_done` counts toward the circuit breaker like any other failed Dispatch, as do a failed start and a failed `dispatch` injection. While the cumulative `failure_count` for the Task is below 3 the Task returns to `ready`; at 3 the Dispatch is `circuit_broken` and the Task is `failed`. The exception is `--reason denied` or `canceled`, which fail the Task directly without incrementing `failure_count`, leaving the Dispatch `failed` rather than `circuit_broken`, because a retry is pointless.
 - Retry: `pod worker-start --task <id> --retry-of <dispatch_id> --agent ...`. It never inherits placement. It is valid only when the Task is `failed` or `blocked`. A Task that went back to `ready` is simply started again with `--task`.
 
 ## Attention categories and `nextAction`

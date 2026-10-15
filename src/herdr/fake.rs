@@ -9,6 +9,7 @@ use chrono::Utc;
 use super::{
     AgentInfo, AgentStatus, EventStream, Herdr, HerdrEvent, HerdrInfo, PaneInfo, ProcessInfo,
     PromptOutcome, TabInfo, WorkspaceCreated, WorkspaceInfo, WorktreeCreate, WorktreeInfo,
+    WorktreeListing,
 };
 use crate::error::{ErrorCode, PodError, Result};
 
@@ -27,6 +28,7 @@ struct State {
     agents: BTreeMap<String, AgentInfo>,
     worktrees: Vec<WorktreeInfo>,
     worktree_list_error: Option<String>,
+    worktree_source: Option<std::path::PathBuf>,
     folder_workspaces: BTreeMap<std::path::PathBuf, String>,
     removed_workspaces: std::collections::BTreeSet<String>,
     agent_start_error: Option<String>,
@@ -65,6 +67,7 @@ impl FakeHerdr {
                 agents: BTreeMap::new(),
                 worktrees: Vec::new(),
                 worktree_list_error: None,
+                worktree_source: None,
                 folder_workspaces: BTreeMap::new(),
                 removed_workspaces: std::collections::BTreeSet::new(),
                 agent_start_error: None,
@@ -300,6 +303,15 @@ impl FakeHerdr {
             .expect("fake herdr mutex poisoned")
             .agent_start_argv
             .clone()
+    }
+
+    /// The source checkout every `worktree_list` names, as herdr does for a
+    /// folder inside a repository it knows.
+    pub fn set_worktree_source(&self, path: &Path) {
+        self.state
+            .lock()
+            .expect("fake herdr mutex poisoned")
+            .worktree_source = Some(path.to_path_buf());
     }
 
     /// Makes every `worktree_list` fail with `message`, as herdr does when
@@ -764,9 +776,10 @@ impl Herdr for FakeHerdr {
 
     fn worktree_create(&self, req: &WorktreeCreate) -> Result<WorktreeInfo> {
         self.record(format!(
-            "worktree_create:{}:{}",
+            "worktree_create:{}:{}:{}",
             req.name,
-            req.display_name.as_deref().unwrap_or("<none>")
+            req.display_name.as_deref().unwrap_or("<none>"),
+            req.repo.display()
         ));
         let mut state = self.state.lock().expect("fake herdr mutex poisoned");
         let id = state.next_id;
@@ -791,7 +804,7 @@ impl Herdr for FakeHerdr {
         })
     }
 
-    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<WorktreeListing> {
         self.record(match cwd {
             Some(cwd) => format!("worktree_list:{}", cwd.display()),
             None => "worktree_list".into(),
@@ -804,11 +817,18 @@ impl Herdr for FakeHerdr {
                 &["herdr status server"],
             ));
         }
-        Ok(state.worktrees.clone())
+        Ok(WorktreeListing {
+            source_checkout: state.worktree_source.clone(),
+            worktrees: state.worktrees.clone(),
+        })
     }
 
-    fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo> {
-        self.record(format!("worktree_open:{}", path.display()));
+    fn worktree_open(&self, path: &Path, source: &Path) -> Result<WorktreeInfo> {
+        self.record(format!(
+            "worktree_open:{}:{}",
+            path.display(),
+            source.display()
+        ));
         Ok(WorktreeInfo {
             workspace_id: "workspace_1".into(),
             path: path.to_path_buf(),

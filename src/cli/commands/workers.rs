@@ -108,12 +108,22 @@ pub struct DispatchArgs {
     pub task: String,
     #[arg(long)]
     pub to: String,
-    #[arg(long)]
+    /// Injection is the default; the flag is accepted for Orca's contract.
+    #[arg(long, conflicts_with = "no_inject")]
     pub inject: bool,
+    /// Record the Dispatch and type nothing: the caller pastes the preamble.
+    #[arg(long)]
+    pub no_inject: bool,
     #[arg(long)]
     pub dry_run: bool,
     #[arg(long)]
     pub return_preamble: bool,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct WorkerGcArgs {
+    #[arg(long)]
+    pub run: Option<String>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -801,20 +811,31 @@ pub fn worker_release(ctx: &Ctx, args: DispatchIdArgs) -> Result<()> {
     Ok(())
 }
 
+pub fn worker_gc(ctx: &Ctx, args: WorkerGcArgs) -> Result<()> {
+    let engine = ctx.engine()?;
+    let run = args.run.as_deref().map(RunId::from_str).transpose()?;
+    let (receipt, replayed) = mutation(ctx, &engine, "worker-gc", &json!({"run": &run}), || {
+        lifecycle::gc(&engine, run.as_ref())
+    })?;
+    let ok = receipt
+        .released
+        .iter()
+        .all(|worker| worker.outcome != "release_unknown");
+    super::emit_mutation(ctx, &receipt, replayed)?;
+    if !ok {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
 pub fn dispatch(ctx: &Ctx, args: DispatchArgs) -> Result<()> {
     let engine = ctx.engine()?;
     let task = TaskId::from_str(&args.task)?;
-    let payload = json!({"task": &task, "to": &args.to, "inject": args.inject, "dryRun": args.dry_run, "returnPreamble": args.return_preamble});
+    let inject = !args.no_inject;
+    let payload = json!({"task": &task, "to": &args.to, "inject": inject, "dryRun": args.dry_run, "returnPreamble": args.return_preamble});
     let (receipt, replayed) = if args.dry_run {
         (
-            lifecycle::dispatch(
-                &engine,
-                &task,
-                &args.to,
-                args.inject,
-                true,
-                args.return_preamble,
-            )?,
+            lifecycle::dispatch(&engine, &task, &args.to, inject, true, args.return_preamble)?,
             false,
         )
     } else {
@@ -823,7 +844,7 @@ pub fn dispatch(ctx: &Ctx, args: DispatchArgs) -> Result<()> {
                 &engine,
                 &task,
                 &args.to,
-                args.inject,
+                inject,
                 false,
                 args.return_preamble,
             )

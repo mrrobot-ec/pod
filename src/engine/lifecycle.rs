@@ -975,6 +975,33 @@ fn assign_session(launch: &Launch) -> Option<String> {
 /// herdr's report, else the proof stored for the same agent in the same pane
 /// by an earlier Dispatch of the same agent process (a reused Claude keeps
 /// its `--session-id`).
+/// Moves a pane's cleanup from the worker that last held it to `dispatch`
+/// (spec 7.4, reuse and `dispatch --to`): a finished previous worker
+/// (`reclaimable` or `retained`) is recorded `released`, and pod's ownership
+/// of the pane, its tab, and its worktree carry over, so a later release of
+/// the new Dispatch closes what pod created. A user takeover is permanent and
+/// carries too; retain's own mark (its reason equals the retained reason)
+/// does not.
+fn carry_pane(
+    tx: &crate::store::Tx<'_>,
+    dispatch: &DispatchId,
+    previous: Option<&workers::WorkerRow>,
+) -> Result<()> {
+    let Some(old) = previous else {
+        return Ok(());
+    };
+    if matches!(old.terminal_state.as_str(), "reclaimable" | "retained") {
+        workers::update_terminal_state(tx, &old.dispatch_id, "released")?;
+    }
+    workers::update_tab_id(tx, dispatch, old.tab_id.as_deref())?;
+    workers::update_worktree_path(tx, dispatch, old.worktree_path.as_deref())?;
+    workers::update_owns_pane(tx, dispatch, old.owns_pane)?;
+    if old.user_owned && old.user_owned_reason.as_deref() != old.retained_reason.as_deref() {
+        workers::update_user_owned(tx, dispatch, true, old.user_owned_reason.as_deref())?;
+    }
+    Ok(())
+}
+
 fn carry_session(
     tx: &crate::store::Tx<'_>,
     dispatch: &DispatchId,
@@ -1314,48 +1341,11 @@ fn reuse_start(
         engine
             .store
             .tx(|tx| {
-                if let Some(old) = previous.as_ref()
-                    && let Some(old_worker) = previous_worker.as_ref()
-                    && matches!(
-                        old_worker.terminal_state.as_str(),
-                        "reclaimable" | "retained"
-                    )
-                {
-                    workers::update_terminal_state(tx, &old.id, "released")?;
-                }
                 workers::update_placement(tx, dispatch, Some(&json!("reused")))?;
                 workers::update_pane_id(tx, dispatch, Some(&agent.pane_id))?;
                 workers::update_terminal_id(tx, dispatch, Some(&pane.terminal_id))?;
                 workers::update_workspace_id(tx, dispatch, Some(&pane.workspace_id))?;
-                workers::update_tab_id(
-                    tx,
-                    dispatch,
-                    previous_worker.as_ref().and_then(|w| w.tab_id.as_deref()),
-                )?;
-                workers::update_worktree_path(
-                    tx,
-                    dispatch,
-                    previous_worker
-                        .as_ref()
-                        .and_then(|w| w.worktree_path.as_deref()),
-                )?;
-                workers::update_owns_pane(
-                    tx,
-                    dispatch,
-                    previous_worker.as_ref().is_some_and(|w| w.owns_pane),
-                )?;
-                // A user takeover is permanent (spec 7.4); retain's own mark
-                // (its reason equals the retained reason) is not carried.
-                if let Some(old) = previous_worker.as_ref().filter(|w| {
-                    w.user_owned && w.user_owned_reason.as_deref() != w.retained_reason.as_deref()
-                }) {
-                    workers::update_user_owned(
-                        tx,
-                        dispatch,
-                        true,
-                        old.user_owned_reason.as_deref(),
-                    )?;
-                }
+                carry_pane(tx, dispatch, previous_worker.as_ref())?;
                 workers::update_effects(tx, dispatch, Some(&json!(["pane_reused"])))?;
                 dispatches::update_assignee_terminal_id(tx, dispatch, Some(&pane.terminal_id))?;
                 dispatches::update_assignee_pid(tx, dispatch, Some(agent.pid))?;
@@ -1727,6 +1717,17 @@ pub fn dispatch(
                 workers::update_workspace_id(tx, &id, Some(&pane.workspace_id))?;
                 workers::update_pane_id(tx, &id, Some(&pane.pane_id))?;
                 workers::update_terminal_id(tx, &id, Some(&pane.terminal_id))?;
+                // The pane's cleanup moves to this Dispatch, as on reuse
+                // (spec 7.4), so a worker finished here is released and a
+                // later release of this one closes what pod created.
+                carry_pane(
+                    tx,
+                    &id,
+                    previous
+                        .as_ref()
+                        .map(|(worker, _)| worker)
+                        .filter(|worker| worker.pane_id.as_deref() == Some(agent.pane_id.as_str())),
+                )?;
                 dispatches::update_assignee_terminal_id(tx, &id, Some(&pane.terminal_id))?;
                 dispatches::update_assignee_pid(tx, &id, Some(agent.pid))?;
                 Ok(())
@@ -1957,6 +1958,75 @@ pub fn retain(engine: &Engine, dispatch: &DispatchId, reason: &str) -> Result<Wo
 /// screen, then close the worker's tab only when pod created it and nothing
 /// else claims the pane, or just the pane when a person split another pane
 /// into that tab. Safe to repeat.
+/// `worker-gc`: the receipt of releasing every finished worker of a Run.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GcReceipt {
+    pub run_id: RunId,
+    pub released: Vec<WorkerReceipt>,
+    pub kept: Vec<GcKept>,
+}
+
+/// A worker `worker-gc` left as it was, and why.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GcKept {
+    pub dispatch_id: DispatchId,
+    pub terminal_state: String,
+    pub reason: String,
+}
+
+/// `worker-gc`: releases every worker of the Run that is `reclaimable`,
+/// `release_pending`, or `release_unknown`, each exactly as `worker-release`
+/// would (spec 7.4): the final screen is archived and the tab closes only if
+/// pod created it. Retained workers are kept, since retain is a choice
+/// already made, and active ones are still working; both are listed with
+/// their reason. Without `run` the Run bound to the caller's terminal is swept.
+pub fn gc(engine: &Engine, run: Option<&RunId>) -> Result<GcReceipt> {
+    let run_id = match run {
+        Some(run) => run.clone(),
+        None => {
+            let caller = require_caller(engine)?;
+            engine
+                .store
+                .read(|tx| runs::bound_to_terminal(tx, &caller.terminal_id))?
+                .map(|run| run.id)
+                .ok_or_else(|| {
+                    PodError::usage("no Run is bound to this terminal; pass --run <id>")
+                })?
+        }
+    };
+    let candidates = engine.store.read(|tx| {
+        let mut rows = Vec::new();
+        for attempt in dispatches::list_by_run(tx, &run_id)? {
+            if let Some(worker) = workers::get(tx, &attempt.id)? {
+                rows.push((attempt.id, worker.terminal_state));
+            }
+        }
+        Ok(rows)
+    })?;
+    let mut released = Vec::new();
+    let mut kept = Vec::new();
+    for (dispatch, state) in candidates {
+        match state.as_str() {
+            "reclaimable" | "release_pending" | "release_unknown" => {
+                released.push(release(engine, &dispatch)?);
+            }
+            "retained" | "active" => kept.push(GcKept {
+                dispatch_id: dispatch,
+                reason: state.clone(),
+                terminal_state: state,
+            }),
+            _ => {}
+        }
+    }
+    Ok(GcReceipt {
+        run_id,
+        released,
+        kept,
+    })
+}
+
 pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> {
     let (attempt, mut worker) = require_worker(engine, dispatch)?;
     if worker.terminal_state == "released" {

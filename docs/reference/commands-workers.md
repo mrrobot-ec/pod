@@ -190,15 +190,27 @@ Every worker receipt (stop, abandon, retain, release) has this layout, and like 
 
 Errors: `store_access_denied`. A close that cannot be confirmed leaves `release_unknown` and exits 1. Exit 0 otherwise.
 
-## `pod dispatch --task <id> --to <handle> [--inject] [--dry-run] [--return-preamble]`
+## `pod worker-gc [--run <id>]`
 
-Low-level: assigns a Task to an existing agent handle without launching anything.
+Releases every worker of the Run that is `reclaimable`, `release_pending`, or `release_unknown`, each exactly as `worker-release` would: the final screen is archived, then the tab closes only if pod created it. Retained workers are kept, because retain is a choice already made, and active workers are still working; both are listed in `kept` with their reason. Without `--run` the Run bound to the caller's terminal is swept. Run it after a batch of `worker_done` reports instead of one `worker-release` per worker, and whenever `worker-list --terminal-state reclaimable` still returns rows.
+
+```json
+{"runId": "run_8f2c1a", "released": [{"dispatchId": "ctx_9d41e7", "state": "released", "outcome": "released", "closedTabs": ["t_7"], "closedPanes": [], "leftAlone": [], "...": "a worker-release receipt"}],
+ "kept": [{"dispatchId": "ctx_4b0c22", "terminalState": "retained", "reason": "retained"}]}
+```
+
+Errors: `store_access_denied`; a usage error when no Run is bound and `--run` is absent. Exit 1 when any release could not be confirmed (`release_unknown`), 0 otherwise.
+
+## `pod dispatch --task <id> --to <handle> [--no-inject] [--dry-run] [--return-preamble]`
+
+Low level: assigns a Task to an existing agent handle without launching anything, and types the preamble and spec into its pane the way `worker-start` does. This is how a retained worker takes its next Task. The pane's cleanup moves to the new Dispatch as on reuse: a `reclaimable` or `retained` worker that last held the pane is recorded `released`, and pod's ownership of the pane, its tab, and its worktree carry over, so releasing the new Dispatch closes the tab if pod created it.
 
 | Flag | Meaning |
 |---|---|
 | `--task <id>` | Task to dispatch. |
 | `--to <handle>` | Target agent handle or terminal. |
-| `--inject` | Also prompt the agent with the preamble and spec. A failed injection counts toward the circuit breaker. |
+| `--no-inject` | Record the Dispatch and type nothing; the caller pastes the preamble itself, usually with `--return-preamble`. |
+| `--inject` | Accepted for Orca's contract; injection is the default. A failed injection counts toward the circuit breaker. |
 | `--dry-run` | Validate and show what would happen; change nothing. |
 | `--return-preamble` | Include the rendered preamble in the receipt. |
 

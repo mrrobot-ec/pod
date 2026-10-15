@@ -12,7 +12,7 @@ use pod::engine::wake::{self, Trigger};
 use pod::error::Result;
 use pod::herdr::{
     AgentInfo, AgentStatus, EventStream, Herdr, HerdrEvent, HerdrInfo, PaneInfo, ProcessInfo,
-    PromptOutcome, TabInfo, WorkspaceInfo, WorktreeCreate, WorktreeInfo,
+    PromptOutcome, TabInfo, WorkspaceInfo, WorktreeCreate, WorktreeInfo, WorktreeListing,
 };
 use pod::ids::{DeliveryId, DispatchId, MessageId, RunId};
 use pod::store::rows::{deliveries, messages, observations};
@@ -1322,11 +1322,11 @@ impl Herdr for MinimalHerdr {
     fn worktree_create(&self, _: &WorktreeCreate) -> Result<WorktreeInfo> {
         self.unsupported()
     }
-    fn worktree_list(&self, _cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
-        Ok(Vec::new())
+    fn worktree_list(&self, _cwd: Option<&Path>) -> Result<WorktreeListing> {
+        Ok(WorktreeListing::default())
     }
 
-    fn worktree_open(&self, _: &Path) -> Result<WorktreeInfo> {
+    fn worktree_open(&self, _: &Path, _: &Path) -> Result<WorktreeInfo> {
         self.unsupported()
     }
     fn agent_start(&self, _: &str, _: &str, _: &str, _: &[String], _: u64) -> Result<AgentInfo> {

@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `pod worker-gc [--run <id>]` releases every `reclaimable` worker of the Run in one call (and retries `release_pending` and `release_unknown`), under the same rules as `worker-release`: the final screen is archived and the tab closes only if pod created it. Retained and active workers are kept and listed with their reason. Eight finished panes piling up in one afternoon, each closed by hand, asked for it.
+
+### Changed
+
+- `pod dispatch --task <id> --to <handle>` types the preamble into the pane by default; `--no-inject` records the Dispatch and types nothing, and `--inject` is accepted for Orca's contract. Four dispatches to retained workers in one afternoon returned `dispatched` while nothing reached the terminal, because the flag was missing. The pane's cleanup now moves to the new Dispatch as it does on reuse: the worker that last held the pane is recorded `released`, and pod's ownership of the pane, tab, and worktree carries over, so releasing the new Dispatch closes the tab pod created instead of leaving it alone as `pane_not_created_by_pod`.
+
+### Fixed
+
+- `worker-start --worktree path:<folder>` failed in 0.2.4 with herdr's `New and open worktree actions start from the repo parent workspace` for a linked worktree of another repository (two starts, 2026-10-15), and a new worktree created by a coordinator sitting in a linked worktree would have failed the same way: every open and create now starts from the repository's source checkout, as herdr's own listing names it, instead of the worktree's folder.
+
 ## [0.2.4] - 2026-10-15
 
 ### Fixed
