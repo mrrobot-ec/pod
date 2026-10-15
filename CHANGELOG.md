@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-14
+
+### Fixed
+
+- The two skill stubs under `skills/` had an unquoted colon in their `description`, which strict YAML reads as a nested mapping, so `npx skills add mrrobot-ec/pod` skipped both and installed nothing. The descriptions are quoted.
+
 ## [0.2.0] - 2026-10-14
 
 One line per lane of the hardening plan (`docs/superpowers/plans/2026-10-14-hardening/`), in lane order.
