@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-15
+
+### Changed
+
+- `scripts/install.sh` installs the latest release when no release matches the installed commit, so `herdr plugin install` keeps downloading a prebuilt binary after commits that follow a tag; building from source is now only for a repository with no release or a failed download. `POD_RELEASE_TAG` pins a tag.
+
 ## [0.2.1] - 2026-10-14
 
 ### Fixed
