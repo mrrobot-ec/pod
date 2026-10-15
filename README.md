@@ -24,7 +24,7 @@ npx skills add mrrobot-ec/pod         # the skills: how your agents learn pod
 pod doctor                            # inside herdr: fix anything it reports
 ```
 
-`herdr plugin install` downloads the release binary for your platform (macOS arm64 or x86-64, Linux x86-64 or arm64), verifies its SHA-256 checksum, and links `~/.local/bin/pod`; when no release matches, it builds from source with cargo. `npx skills add` installs two small skills, `pod-coordinator` and `pod-worker`, into your agents. Each tells the agent to read the full guide from the installed binary (`pod skills get coordinator`), so the guide always matches the version you run. Make sure `~/.local/bin` is on your `PATH`, then run `pod doctor` and fix every `fail` it reports; each entry carries its fix.
+`herdr plugin install` downloads the release binary for your platform (macOS arm64 or x86-64, Linux x86-64 or arm64), verifies its SHA-256 checksum, and links `~/.local/bin/pod`. When no release matches the installed commit it installs the latest release instead, and it builds from source with cargo only when the repository has no release or the download fails. `npx skills add` installs two small skills, `pod-coordinator` and `pod-worker`, into your agents. Each tells the agent to read the full guide from the installed binary (`pod skills get coordinator`), so the guide always matches the version you run. Make sure `~/.local/bin` is on your `PATH`, then run `pod doctor` and fix every `fail` it reports; each entry carries its fix.
 
 Optional, once: `pod usage --install` puts both accounts' rate-limit windows, Claude's session cost, and Codex's credits on herdr's tab bar, and lets the coordinator pause new workers when a window is nearly spent.
 

@@ -1,12 +1,14 @@
 #!/bin/sh
 # Plugin build step for pod (spec 3.5): install a checksum-verified release
-# binary that matches this checkout, or build from source when no release
-# matches, then link ~/.local/bin/pod.
+# binary that matches this checkout, else the latest release, or build from
+# source when there is no release at all, then link ~/.local/bin/pod.
 #
 # POD_INSTALL_BIN_DIR   link directory (default: $HOME/.local/bin)
 # POD_INSTALL_LIB_DIR   where a herdr-managed install keeps its binary
 #                       (default: ${XDG_DATA_HOME:-$HOME/.local/share}/pod/bin)
 # POD_RELEASE_REPO      owner/repo to download from (default: from `git remote`)
+# POD_RELEASE_TAG       release tag to install (default: the tag naming HEAD,
+#                       else the repository's latest release)
 # POD_INSTALL_FROM_SOURCE=1   skip the download and build from source
 set -eu
 
@@ -60,15 +62,35 @@ release_repo() {
     echo "${repo%.git}"
 }
 
-# The tag naming HEAD. `herdr plugin install` fetches with --depth 1 and no
-# tags, so fall back to asking the remote which tag points at HEAD.
+# The repository's latest published release (not a draft or prerelease),
+# from GitHub's API; no jq, so a plain substitution reads tag_name.
+latest_release_tag() {
+    curl -fsSL -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/repos/$1/releases/latest" 2>/dev/null |
+        sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' |
+        head -n 1 | grep .
+}
+
+# The tag to install: POD_RELEASE_TAG, else the tag naming HEAD (`herdr plugin
+# install` fetches with --depth 1 and no tags, so the remote is asked which tag
+# points at HEAD), else the latest release, so a commit pushed after a tag
+# still installs a prebuilt binary.
 release_tag() {
+    if [ -n "${POD_RELEASE_TAG:-}" ]; then
+        echo "$POD_RELEASE_TAG"
+        return 0
+    fi
     git describe --exact-match --tags HEAD 2>/dev/null && return 0
     head=$(git rev-parse HEAD 2>/dev/null) || return 1
     tag=$(GIT_TERMINAL_PROMPT=0 git ls-remote --tags origin 2>/dev/null |
         awk -v head="$head" '$1 == head { sub(/^refs\/tags\//, "", $2); sub(/\^\{\}$/, "", $2); print $2; exit }')
-    [ -n "$tag" ] || return 1
-    echo "$tag"
+    if [ -n "$tag" ]; then
+        echo "$tag"
+        return 0
+    fi
+    latest=$(latest_release_tag "$1") || return 1
+    say "no release matches this revision; installing the latest release $latest (its binary may be older than this checkout)"
+    echo "$latest"
 }
 
 # Places the verified binary at $built on success; returns non-zero when no
@@ -79,7 +101,7 @@ fetch_release() {
     command -v tar >/dev/null 2>&1 || return 1
     triple=$(target_triple) || return 1
     repo=$(release_repo) || return 1
-    tag=$(release_tag) || return 1
+    tag=$(release_tag "$repo") || return 1
     asset="pod-$tag-$triple"
     base="https://github.com/$repo/releases/download/$tag"
     tmp=$(mktemp -d)
@@ -101,7 +123,7 @@ fetch_release() {
 if fetch_release; then
     say "installed checksum-verified release binary"
 else
-    say "no matching release; building from source with cargo"
+    say "no release to install; building from source with cargo"
     command -v cargo >/dev/null 2>&1 || {
         say "cargo not found; install Rust (https://rustup.rs) and retry"
         exit 1

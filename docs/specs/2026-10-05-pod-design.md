@@ -146,8 +146,8 @@ which herdr sets only for commands herdr launches.
 ### 3.5 Plugin manifest
 
 - `[[build]]`: `scripts/install.sh` - downloads the checksum-verified release
-  binary matching the installed revision, or builds from source for an
-  unreleased revision; links `~/.local/bin/pod`.
+  binary matching the installed revision, else the latest release, or builds
+  from source when there is no release; links `~/.local/bin/pod`.
 - `[[startup]]`: `pod hook startup`.
 - `[[events]]`: `pane.exited`, `pane.closed`, `pane.agent_status_changed` →
   `pod hook event`.

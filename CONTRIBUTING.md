@@ -53,7 +53,7 @@ cargo test
 
 ## Releases
 
-Maintainers bump the version in `Cargo.toml` and `herdr-plugin.toml`, move the changelog's entry to the new version, and push a `vX.Y.Z` tag. The release workflow builds the four binaries with checksums. The install script downloads a release only when the default branch's head is the tagged commit; otherwise it builds from source.
+Maintainers bump the version in `Cargo.toml` and `herdr-plugin.toml`, move the changelog's entry to the new version, and push a `vX.Y.Z` tag. The release workflow builds the four binaries with checksums. The install script downloads the release that matches the installed commit, else the latest release, and builds from source only when there is no release or the download fails, so a commit pushed after a tag still installs a prebuilt binary.
 
 ## License
 
