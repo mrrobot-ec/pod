@@ -454,6 +454,10 @@ release.
   Task directly because a retry is pointless; these two reports do not increment
   `failure_count` and leave the Dispatch `failed`, not `circuit_broken`.
 - A failed `dispatch` injection counts toward the breaker.
+- A start that fails at `preflight` or `placement`, before any pane exists,
+  does not count: nothing ran, so the failure is pod's or herdr's. The
+  Dispatch is `failed`, the Task returns to `ready`, and `failure_count` is
+  unchanged.
 
 ### 7.6 Liveness and attention
 

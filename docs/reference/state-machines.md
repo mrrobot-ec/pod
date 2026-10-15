@@ -59,7 +59,7 @@ The last column is the `termination_reason` stored on the Dispatch when it ends 
 |---|---|---|---|---|
 | D1 | (none) | `worker-start` or `dispatch` passes Preflight and creates the Dispatch (created `pending` at Preflight) | `pending` | none yet |
 | D2 | `pending` | Record stage: agent ready and prompt injected; or `dispatch` records it (with `--inject`, after the prompt is typed) | `dispatched` | none yet |
-| D3 | `pending` | start ends `failed` or `start_unknown` | `failed` (the spec names no Dispatch status for a failed start; `failed` keeps one active Dispatch per Task and lets `--retry-of` name it) | none; no worker-reported reason for a failed start |
+| D3 | `pending` | start ends `failed` or `start_unknown` | `failed` (the spec names no Dispatch status for a failed start; `failed` keeps one active Dispatch per Task and lets `--retry-of` name it; a `preflight` or `placement` failure leaves `failure_count` unchanged, since nothing ran) | none; no worker-reported reason for a failed start |
 | D4 | `pending` | a `dispatch` injection fails (counts toward the breaker) | `failed` | none, as D3 |
 | D5 | `dispatched` | accepted `worker_done --outcome succeeded` | `completed` | the `--reason` given, default `no_follow_on`; `handed_off`, `blocked_on`, and `superseded` also store the target |
 | D6 | `dispatched` | `gate-create` completes it | `completed` | none; a gate is the coordinator's act, not a worker report |

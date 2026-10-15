@@ -83,7 +83,7 @@ Never send an empty body, and never send an example value from this guide litera
 
 ### What `worker_done` does
 
-`worker_done` and `heartbeat` always go to the Run mailbox regardless of `--to`. Success means the message is durably stored, nothing more. A repeated `worker_done` with the same outcome returns `settled` with `duplicate: true`, which is fine. A conflicting one returns `inactive_dispatch`: your outcome was already recorded differently, so stop and do not retry.
+`worker_done` and `heartbeat` always go to the Run mailbox regardless of `--to`. Success means the message is durably stored, nothing more. A re-send of the same `worker_done` returns `settled` with `duplicate: true`, which is fine. One that conflicts with the recorded outcome, or reports different work against a Dispatch that already ended, returns `inactive_dispatch`. The second case means you were briefed outside pod (text typed into your pane rather than a `pod dispatch`): your report is stored for the coordinator anyway, so say so in your pane and wait for a dispatched brief rather than retrying.
 
 If a lifecycle message is rejected (for example `worker_identity_changed` or `caller_fenced`), the command exits 1, but the message is still stored for the coordinator, rewritten to type `status` with priority `high` and a `rejected_reason`, named in the error's `data.stored`, and the coordinator is nudged about it like any other mail. For identity or fencing failures, do not keep retrying: stop and idle. For closure or escalation field validation failures, correct the flags and resend; the rejected message did not settle your Dispatch.
 

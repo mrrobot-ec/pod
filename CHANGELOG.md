@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `pod log` records `worker.released` for every `worker-release` or `worker-gc` that changed a worker's state, with `{terminal_state, closed_tabs, closed_panes, left_alone}`.
+
+### Changed
+
+- A start that fails at `preflight` or `placement`, before any pane exists, no longer counts toward the circuit breaker: nothing ran, so the failure is pod's or herdr's. The Dispatch is `failed`, the Task returns to `ready`, `failure_count` is unchanged, and the `dispatch.start_failed` event carries `counted: false`. Two placement failures in a row had spent two of a Task's three attempts on 2026-10-15.
+- The `task_not_startable` refusal names the one cause that applies instead of printing `has unmet dependencies:` with an empty list for a bad `--retry-of`.
+- A `worker_done` with the same outcome as the report that settled its Dispatch is `duplicate` only when its subject and body match too, and the receipt then carries a `warnings` entry naming the re-sent message. One that reports different work is refused with `inactive_dispatch`, stored for the coordinator as a refused status, and told why: the worker was briefed outside pod. A verdict typed into a hand-briefed retained pane had vanished as `duplicate` on 2026-10-15.
+
 ## [0.2.5] - 2026-10-15
 
 ### Added

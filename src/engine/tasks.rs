@@ -300,21 +300,52 @@ pub fn startable(tx: &Tx<'_>, task: &TaskId, retry_of: Option<&DispatchId>) -> R
     {
         return Ok(());
     }
-    Err(PodError::new(
-        ErrorCode::TaskNotStartable,
-        format!(
-            "Task {task} is {} and has unmet dependencies: {}",
-            row.status,
-            unmet
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        &["Finish the unmet dependencies, or pass --retry-of for a failed or blocked Task."],
-    )
-    .with_data("status", row.status)
-    .with_data("unmetDependencies", serde_json::json!(unmet)))
+    // The message names the one cause that applies; an empty dependency
+    // list used to be printed for a bad `--retry-of` (seen live 2026-10-15).
+    let (message, next): (String, &[&str]) = if !unmet.is_empty() {
+        (
+            format!(
+                "Task {task} is {} and has unmet dependencies: {}",
+                row.status,
+                unmet
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            &["Finish the unmet dependencies first."],
+        )
+    } else if let Some(dispatch) = retry_of {
+        if matches!(row.status.as_str(), "failed" | "blocked") {
+            (
+                format!(
+                    "Task {task} is {}, but Dispatch {dispatch} is not a failed or circuit_broken attempt of it",
+                    row.status
+                ),
+                &[
+                    "Pass --retry-of with a failed Dispatch of this Task; dispatch-show --task lists them.",
+                ],
+            )
+        } else {
+            (
+                format!(
+                    "Task {task} is {}; --retry-of applies only to a failed or blocked Task",
+                    row.status
+                ),
+                &["Start a ready Task with --task alone."],
+            )
+        }
+    } else {
+        (
+            format!("Task {task} is {}, not ready", row.status),
+            &[
+                "Pass --retry-of <dispatch> for a failed or blocked Task, or wait for the Task to become ready.",
+            ],
+        )
+    };
+    Err(PodError::new(ErrorCode::TaskNotStartable, message, next)
+        .with_data("status", row.status)
+        .with_data("unmetDependencies", serde_json::json!(unmet)))
 }
 
 pub fn get(tx: &Tx<'_>, task: &TaskId) -> Result<Option<TaskRow>> {

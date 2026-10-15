@@ -1182,18 +1182,20 @@ fn failed_start(
     } = failure;
     let (run, task, dispatch, handle) = (frame.run, frame.task, frame.dispatch, frame.handle);
     let now = engine.clock.now();
+    // A failure before any pane exists (`preflight`, `placement`) is pod's
+    // or herdr's, not the worker's: nothing ran. It does not count toward the
+    // breaker (spec 7.5); the Task returns to `ready` with its count kept.
+    let counted = !matches!(stage, "preflight" | "placement");
     engine.store.tx(|tx| {
-        let next = dispatches::max_failure_count_for_task(tx, task)? + 1;
-        let status = if next >= 3 {
-            "circuit_broken"
-        } else {
-            "failed"
-        };
+        let current = dispatches::max_failure_count_for_task(tx, task)?;
+        let next = if counted { current + 1 } else { current };
+        let broken = counted && next >= 3;
+        let status = if broken { "circuit_broken" } else { "failed" };
         dispatches::update_status(tx, dispatch, status)?;
         dispatches::update_failure_count(tx, dispatch, next)?;
         dispatches::update_last_failure(tx, dispatch, Some(&error.message))?;
         dispatches::update_completed_at(tx, dispatch, Some(now))?;
-        task_rows::update_status(tx, task, if next >= 3 { "failed" } else { "ready" })?;
+        task_rows::update_status(tx, task, if broken { "failed" } else { "ready" })?;
         workers::update_state(tx, dispatch, "failed")?;
         workers::update_stage(tx, dispatch, Some(stage))?;
         workers::update_last_error(tx, dispatch, Some(&error.message))?;
@@ -1219,7 +1221,7 @@ fn failed_start(
                 task_id: Some(task.clone()),
                 dispatch_id: Some(dispatch.clone()),
                 actor: handle.into(),
-                detail: Some(json!({"stage": stage, "failure_count": next, "dispatch_status": status, "error": error.message})),
+                detail: Some(json!({"stage": stage, "failure_count": next, "counted": counted, "dispatch_status": status, "error": error.message})),
             },
         )
     })?;
@@ -2133,9 +2135,31 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
             }
         }
     };
+    let now = engine.clock.now();
     engine.store.tx(|tx| {
         workers::update_terminal_state(tx, dispatch, terminal_state)?;
-        workers::update_updated_at(tx, dispatch, engine.clock.now())
+        workers::update_updated_at(tx, dispatch, now)?;
+        events::append(
+            tx,
+            &events::EventRow {
+                sequence: None,
+                run_id: attempt.run_id.clone(),
+                at: now,
+                r#type: "worker.released".into(),
+                task_id: Some(attempt.task_id.clone()),
+                dispatch_id: Some(dispatch.clone()),
+                actor: engine
+                    .caller
+                    .as_ref()
+                    .map_or_else(|| "pod".to_owned(), |caller| caller.terminal_id.clone()),
+                detail: Some(json!({
+                    "terminal_state": terminal_state,
+                    "closed_tabs": closed_tabs,
+                    "closed_panes": closed_panes,
+                    "left_alone": left,
+                })),
+            },
+        )
     })?;
     engine.after_commit(&attempt.run_id, &[])?;
     receipt(

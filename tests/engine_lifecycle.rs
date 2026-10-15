@@ -1062,13 +1062,14 @@ fn retry_of_requires_failed_or_blocked_and_never_inherits_placement() {
         ErrorCode::TaskNotStartable
     );
 
-    // Three failed starts at placement break the circuit and fail the Task.
+    // Three failed starts past placement (an agent that never starts in
+    // the pane pod made) break the circuit and fail the Task.
     let mut last = None;
     for _ in 0..3 {
-        let mut attempt = input(task.clone(), run.clone());
-        attempt.worktree = Worktree::Branch("missing".into());
-        let receipt = lifecycle::worker_start(&env.engine, attempt).unwrap();
-        assert_eq!(receipt.failed_stage.as_deref(), Some("placement"));
+        env.herdr.fail_agent_start_once("no agent");
+        let receipt =
+            lifecycle::worker_start(&env.engine, input(task.clone(), run.clone())).unwrap();
+        assert_eq!(receipt.failed_stage.as_deref(), Some("agent"));
         last = Some(receipt.dispatch_id);
     }
     let last = last.unwrap();
@@ -1079,7 +1080,7 @@ fn retry_of_requires_failed_or_blocked_and_never_inherits_placement() {
         .unwrap()
         .unwrap();
     assert_eq!(broken.status, "circuit_broken");
-    assert_eq!(worker_row(&env, &last).terminal_state, "released");
+    assert_eq!(worker_row(&env, &last).terminal_state, "reclaimable");
     assert_eq!(
         env.engine
             .store
@@ -1701,8 +1702,10 @@ fn lifecycle_mutations_write_each_event_once() {
     lifecycle::retain(&env.engine, &started.dispatch_id, "keep").unwrap();
     lifecycle::release(&env.engine, &started.dispatch_id).unwrap();
     lifecycle::release(&env.engine, &started.dispatch_id).unwrap();
-    // A repeated retain with the same reason marks nothing new.
+    // A repeated retain with the same reason marks nothing new, and a
+    // repeated release changes nothing, so each writes one event.
     assert_eq!(count(&env, "worker.user_owned"), 1, "{:?}", types(&env));
+    assert_eq!(count(&env, "worker.released"), 1, "{:?}", types(&env));
 
     let failing = new_task(&env, &run, "fails");
     env.herdr.fail_agent_start("no agent");
@@ -2310,4 +2313,133 @@ fn a_session_shared_by_two_dispatches_is_spent_once() {
         .read(|tx| runs::spent_usd(tx, &usage, &run))
         .unwrap();
     assert_eq!(spent, 3.1046);
+}
+
+/// A failure before any pane exists is pod's or herdr's, not the worker's:
+/// three placement failures leave the Task `ready` with its count unchanged
+/// (two in a row had spent two of three attempts, 2026-10-15), while a
+/// failure once a pane exists still counts.
+#[test]
+fn placement_failures_do_not_count_toward_the_breaker() {
+    let (env, run, task) = seeded();
+    env.herdr.fail_worktree_list("herdr did not answer");
+    let target = env.tmp.path().join("elsewhere");
+    for _ in 0..3 {
+        let mut start = input(task.clone(), run.clone());
+        start.worktree = Worktree::Path(target.clone());
+        let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+        assert_eq!(receipt.failed_stage.as_deref(), Some("placement"));
+        let (status, count) = env
+            .engine
+            .store
+            .read(|tx| {
+                let row = dispatches::get(tx, &receipt.dispatch_id)?.unwrap();
+                Ok((row.status, row.failure_count))
+            })
+            .unwrap();
+        assert_eq!((status.as_str(), count), ("failed", 0));
+        let task_status = env
+            .engine
+            .store
+            .read(|tx| Ok(tasks::get(tx, &task)?.unwrap().status))
+            .unwrap();
+        assert_eq!(task_status, "ready");
+    }
+    let event = env
+        .engine
+        .store
+        .read(|tx| pod::store::rows::events::list(tx, &run))
+        .unwrap()
+        .into_iter()
+        .rfind(|row| row.r#type == "dispatch.start_failed")
+        .unwrap();
+    assert_eq!(event.detail.unwrap()["counted"], false);
+
+    // An agent that never starts is a failure of the attempt and counts.
+    let counted = new_task(&env, &run, "counted");
+    env.herdr.fail_agent_start("no agent");
+    let receipt = lifecycle::worker_start(&env.engine, input(counted, run)).unwrap();
+    assert_eq!(receipt.failed_stage.as_deref(), Some("agent"));
+    let count = env
+        .engine
+        .store
+        .read(|tx| {
+            Ok(dispatches::get(tx, &receipt.dispatch_id)?
+                .unwrap()
+                .failure_count)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+/// The `task_not_startable` refusal names the cause that applies instead of
+/// an empty dependency list (seen live 2026-10-15 for a bad `--retry-of`).
+#[test]
+fn startable_refusal_names_the_cause() {
+    let (env, run, task) = seeded();
+    let message = |result: pod::error::Result<()>| result.unwrap_err().message;
+    let bogus = DispatchId::new();
+    let wrong_state = env
+        .engine
+        .store
+        .read(|tx| Ok(message(tasks::startable(tx, &task, Some(&bogus)))))
+        .unwrap();
+    assert!(
+        wrong_state.contains("--retry-of applies only to a failed or blocked Task"),
+        "{wrong_state}"
+    );
+    assert!(!wrong_state.contains("unmet dependencies"), "{wrong_state}");
+
+    let dependent = env
+        .engine
+        .store
+        .tx(|tx| {
+            tasks::create(
+                tx,
+                env.engine.clock.now(),
+                &run,
+                "after",
+                None,
+                None,
+                std::slice::from_ref(&task),
+                None,
+                "term-coord",
+            )
+        })
+        .unwrap()
+        .id;
+    let unmet = env
+        .engine
+        .store
+        .read(|tx| Ok(message(tasks::startable(tx, &dependent, None))))
+        .unwrap();
+    assert!(
+        unmet.contains(&format!("unmet dependencies: {task}")),
+        "{unmet}"
+    );
+
+    // A failed Task with a `--retry-of` that is not one of its failed attempts.
+    let start = lifecycle::worker_start(&env.engine, input(task.clone(), run.clone())).unwrap();
+    env.engine
+        .store
+        .tx(|tx| {
+            tasks::settle_dispatch(
+                tx,
+                env.engine.clock.now(),
+                &start.dispatch_id,
+                tasks::Outcome::Failed,
+                "denied",
+                None,
+            )
+        })
+        .unwrap();
+    let wrong_attempt = env
+        .engine
+        .store
+        .read(|tx| Ok(message(tasks::startable(tx, &task, Some(&bogus)))))
+        .unwrap();
+    assert!(
+        wrong_attempt.contains("is not a failed or circuit_broken attempt of it"),
+        "{wrong_attempt}"
+    );
 }

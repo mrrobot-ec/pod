@@ -179,6 +179,67 @@ fn worker_done_duplicate_same_outcome_settled_duplicate_true() {
     assert!(duplicate.settled.is_some());
 }
 
+/// A `worker_done` for a settled Dispatch is a re-send only when it repeats
+/// the same report. One that says something else is new work the worker was
+/// never dispatched for (a brief typed by hand into a retained pane, seen
+/// live 2026-10-15): it is refused with the reason, and stored for the
+/// coordinator like every refused lifecycle message.
+#[test]
+fn different_report_for_a_settled_dispatch_is_refused_and_stored() {
+    let mut env = TestEnv::new();
+    seed_worker(&env, "dispatched");
+    env.as_caller(TERMINAL, std::process::id());
+    let mut first = input("worker_done");
+    first.outcome = Some("succeeded".into());
+    let settled = messages::send(&env.engine, first.clone()).unwrap();
+    let settling = settled.message_ids[0].clone();
+
+    let resend = messages::send(&env.engine, first).unwrap();
+    assert!(resend.duplicate);
+    assert!(
+        resend.warnings[0].contains(&format!("re-send of worker_done {settling}")),
+        "{:?}",
+        resend.warnings
+    );
+
+    let mut verdict = input("worker_done");
+    verdict.outcome = Some("succeeded".into());
+    verdict.subject = "APPROVE PR #122".into();
+    verdict.body = Some("reviewed f446ab2".into());
+    let error = messages::send(&env.engine, verdict).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InactiveDispatch);
+    assert!(
+        error.message.contains(&format!(
+            "differs from the report that settled Dispatch {DISPATCH}"
+        )),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.message.contains("was not dispatched through pod"),
+        "{}",
+        error.message
+    );
+    let stored = &error.data["stored"];
+    assert_eq!(stored["mailbox"], format!("run:{RUN}"));
+    let kept = env
+        .engine
+        .store
+        .read(|tx| {
+            pod::store::rows::messages::get(
+                tx,
+                &pod::ids::MessageId::from_str(stored["messageId"].as_str().unwrap()).unwrap(),
+            )
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (kept.r#type.as_str(), kept.subject.as_str()),
+        ("status", "APPROVE PR #122")
+    );
+    assert_eq!(kept.rejected_reason.as_deref(), Some("inactive_dispatch"));
+}
+
 #[test]
 fn conflicting_outcome_inactive_dispatch() {
     let mut env = TestEnv::new();

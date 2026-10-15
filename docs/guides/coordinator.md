@@ -115,7 +115,7 @@ Other endings:
 
 - `worker-stop --dispatch <id>`: fences the Dispatch and closes only the exact supervised agent pane, and only when pod created it (a pane pod did not create stays open). Use on proof of a problem.
 - `worker-abandon --dispatch <id>`: fences the Dispatch and touches no process.
-- A failed `worker_done` counts toward the circuit breaker like any other failed Dispatch, as do a failed start and a failed `dispatch` injection. While the cumulative `failure_count` for the Task is below 3 the Task returns to `ready`; at 3 the Dispatch is `circuit_broken` and the Task is `failed`. The exception is `--reason denied` or `canceled`, which fail the Task directly without incrementing `failure_count`, leaving the Dispatch `failed` rather than `circuit_broken`, because a retry is pointless.
+- A failed `worker_done` counts toward the circuit breaker like any other failed Dispatch, as do a failed start past placement and a failed `dispatch` injection; a start that fails at `preflight` or `placement`, before any pane exists, is pod's or herdr's and is not counted. While the cumulative `failure_count` for the Task is below 3 the Task returns to `ready`; at 3 the Dispatch is `circuit_broken` and the Task is `failed`. The exception is `--reason denied` or `canceled`, which fail the Task directly without incrementing `failure_count`, leaving the Dispatch `failed` rather than `circuit_broken`, because a retry is pointless.
 - Retry: `pod worker-start --task <id> --retry-of <dispatch_id> --agent ...`. It never inherits placement. It is valid only when the Task is `failed` or `blocked`. A Task that went back to `ready` is simply started again with `--task`.
 
 ## Attention categories and `nextAction`

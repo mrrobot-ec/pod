@@ -80,7 +80,7 @@ An escalation carries its evidence:
 pod send --type escalation --subject "Blocked: schema unclear" --body "Two schemas match." --evidence msg_31ac40 --recommendation "Use v2" --task-id task_a1b2c3 --dispatch-id ctx_9d41e7
 ```
 
-Repeated `worker_done` with the same outcome returns `settled` with `duplicate: true` as a normal receipt on stdout, not an error envelope (exit 0, because idempotent repeats succeed; see [errors.md](errors.md#values-that-look-like-errors-but-are-not)):
+A repeated `worker_done` with the same outcome, subject, and body is a re-send: it returns `settled` with `duplicate: true` and a `warnings` entry naming the earlier message, as a normal receipt on stdout, not an error envelope (exit 0, because idempotent repeats succeed; see [errors.md](errors.md#values-that-look-like-errors-but-are-not)). A `worker_done` with the same outcome but a different report is refused with `inactive_dispatch`: the Dispatch settled on the earlier report, so the new one is work the worker was never dispatched for (a brief typed into its pane by hand); like every refused lifecycle message it is stored for the coordinator as a high-priority `status`, and the error names the settling report.
 
 ```json
 {"message": null, "duplicate": true, "settled": {"taskStatus": "completed", "dispatchStatus": "completed", "failureCount": 0, "promoted": []}}

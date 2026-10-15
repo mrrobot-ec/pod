@@ -402,23 +402,40 @@ pub fn send_in(
     }
     if dispatch.status != "dispatched" {
         if worker_done {
-            let previous = messages::first_worker_done(tx, dispatch.id.as_str())?
-                .and_then(|row| row.payload)
-                .and_then(|payload| {
-                    payload
-                        .get("outcome")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                });
-            if previous.is_some() && previous.as_deref() == input.outcome.as_deref() {
-                return Ok(SendOutcome::Stored(SendReceipt {
-                    message_ids: Vec::new(),
-                    mailbox: format!("run:{}", dispatch.run_id),
-                    settled: Some(tasks::settlement_of(tx, &dispatch.id)?),
-                    duplicate: true,
-                    warnings: Vec::new(),
-                    rejected_reason: None,
-                }));
+            let first = messages::first_worker_done(tx, dispatch.id.as_str())?;
+            let previous = first.as_ref().and_then(|row| {
+                row.payload
+                    .as_ref()
+                    .and_then(|payload| payload.get("outcome"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+            if let Some(first) = first.as_ref()
+                && previous.as_deref() == input.outcome.as_deref()
+            {
+                // The same report again is a re-send by a worker that lost
+                // its receipt. A different one is new work reported against
+                // a Dispatch that already ended: the worker was briefed
+                // outside pod (seen live 2026-10-15, a brief typed by hand
+                // into a retained pane), and its verdict must not vanish as
+                // `duplicate`. Refusing stores it for the coordinator, and
+                // the error says why.
+                if first.subject == input.subject && first.body == input.body {
+                    return Ok(SendOutcome::Stored(SendReceipt {
+                        message_ids: Vec::new(),
+                        mailbox: format!("run:{}", dispatch.run_id),
+                        settled: Some(tasks::settlement_of(tx, &dispatch.id)?),
+                        duplicate: true,
+                        warnings: vec![format!(
+                            "a re-send of worker_done {} for Dispatch {}, which it settled at {}; nothing new was stored",
+                            first.id,
+                            dispatch.id,
+                            first.created_at.to_rfc3339()
+                        )],
+                        rejected_reason: None,
+                    }));
+                }
+                return refuse_here(settled_dispatch_report(&dispatch.id, first));
             }
             return refuse_here(inactive_dispatch());
         }
@@ -879,6 +896,23 @@ fn parent_pid(pid: u32) -> Option<u32> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn parent_pid(_pid: u32) -> Option<u32> {
     None
+}
+
+/// A `worker_done` whose Dispatch already settled on an earlier report that
+/// said something else: the worker did work it was never dispatched for.
+fn settled_dispatch_report(dispatch: &DispatchId, first: &messages::MessageRow) -> PodError {
+    PodError::new(
+        ErrorCode::InactiveDispatch,
+        format!(
+            "worker_done differs from the report that settled Dispatch {dispatch} at {} ({}); this terminal has no active Dispatch, so the brief it worked on was not dispatched through pod",
+            first.created_at.to_rfc3339(),
+            first.id
+        ),
+        &[
+            "The report was stored for the coordinator as a refused status, so the verdict is not lost.",
+            "Tell the coordinator, in your pane, that this work needs a Task dispatched with `pod dispatch --task <id> --to <handle>` before it can be reported, then wait for that brief.",
+        ],
+    )
 }
 
 fn inactive_dispatch() -> PodError {
