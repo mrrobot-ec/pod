@@ -93,9 +93,10 @@ impl Engine {
 
     /// Runs after every committing mutation of `run`: rewrites the Run's
     /// board file (`board::export`, then `board::write`), writes each worker
-    /// workspace's herdr sidebar status, then makes the wake attempts for the
-    /// mailboxes the mutation wrote (`wake::after_commit_nudge`) and the
-    /// ladder retries this mutating command triggers.
+    /// workspace's herdr sidebar status, then makes the wake attempts of
+    /// 8.2: the first attempt for each mailbox this mutation wrote, then the
+    /// one eligible retry a mutating command is for every other mailbox of
+    /// the Run with unread mail not already in its consumer's hands.
     ///
     /// The board and the sidebar are derived views rewritten after every
     /// commit, so a failure is reported on stderr and never fails the
@@ -120,17 +121,14 @@ impl Engine {
             eprintln!("pod: board export for {run} failed: {}", error.message);
         }
         self.write_sidebar(run);
-        for mailbox in mailboxes {
-            if let Err(error) = wake::after_commit_nudge(self, mailbox) {
-                eprintln!("pod: wake for {mailbox} failed: {}", error.message);
-            }
+        let mut pending: Vec<String> = mailboxes.to_vec();
+        match wake::retry_mailboxes(self, run) {
+            Ok(more) => pending.extend(more.into_iter().filter(|m| !mailboxes.contains(m))),
+            Err(error) => eprintln!("pod: wake retries for {run} failed: {}", error.message),
         }
-        if let Ok(pending) = wake::active_mailboxes(self, run) {
-            for mailbox in pending {
-                if let Err(error) = wake::on_trigger(self, &mailbox, wake::Trigger::MutatingCommand)
-                {
-                    eprintln!("pod: wake retry for {mailbox} failed: {}", error.message);
-                }
+        for mailbox in &pending {
+            if let Err(error) = wake::on_trigger(self, mailbox, wake::Trigger::MutatingCommand) {
+                eprintln!("pod: wake for {mailbox} failed: {}", error.message);
             }
         }
         Ok(())

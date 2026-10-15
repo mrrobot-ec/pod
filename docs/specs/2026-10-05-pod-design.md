@@ -536,11 +536,13 @@ After commit, in the sender's process:
 
 1. If a `check --wait` waiter on that mailbox matches the type, it wakes.
    Nothing is typed.
-2. Otherwise pod attempts a wake only when all hold: the recipient's
+2. Otherwise pod types a nudge only when all hold: the recipient's
    `presence` is `present` and `activity` is `idle_at_prompt` on evidence no
-   older than 15 seconds (otherwise the attempt is `skipped`); the pane has been quiet
-   for 3 seconds; the mailbox has no outstanding unacknowledged Delivery; no
-   wake for that mailbox is in flight.
+   older than 15 seconds; the pane has been quiet for 3 seconds; the mailbox
+   has no outstanding unacknowledged Delivery; no wake for that mailbox is in
+   flight. An absent, unproven, or stale recipient and an outstanding
+   Delivery are recorded `skipped`; a working recipient, an unproven quiet
+   window, and a wake in flight are not now and record nothing (below).
 3. Text: for a worker, `You have N orchestration message(s). Run \`pod check --terminal <handle>\`. Your brief: <path>.`
    where `<handle>` is its worker handle and `<path>` its brief file, so a worker
    that lost its context to compaction finds the brief again; the brief sentence
@@ -569,26 +571,36 @@ unavailable, Enter withheld), `skipped` (a wake or safe-input precondition faile
 reason in `wake_attempts.detail` for nudges or `workers.last_error` for injection), or `failed`.
 
 **Wake ladder.** Nudges for one mailbox form a bounded, store-derived retry
-policy: at most 5 attempts, the first at commit in the sender's process, each
-later one only on an eligible trigger (an idle event hook for the recipient, or
-a mutating `pod` command for that Run, at most one attempt per invocation) and
-no sooner than 60 seconds after the previous attempt. After the fifth attempt
-without a consuming `check` by the recipient, the mailbox carries attention
+policy: at most 5 recorded attempts, the first at commit in the sender's
+process, each later one only on an eligible trigger (an idle event hook for
+the recipient, or a mutating `pod` command for that Run, which retries every
+mailbox of the Run with unread mail not already in its consumer's hands, at
+most one attempt per mailbox per invocation) and no sooner than 60 seconds
+after the previous recorded attempt. After the fifth attempt without a
+consuming `check` by the recipient, the mailbox carries attention
 `unreachable`, `requiresAction: true`; for a worker mailbox the coordinator's
 `nextAction` is `worker-show`, and for the Run mailbox the status is written to
 the board for the user.
 
 The position is computed from `wake_attempts` and `events`, never held in
 memory, so a herdr restart or a new `pod` process neither loses nor resets it.
-A consuming `check` by the recipient clears it. Only nudge attempts count,
-including `skipped` and `failed`. New mail does not restart a pending policy.
+A consuming `check` by the recipient clears it. Only recorded attempts count:
+a nudge pod typed (`delivered`, `rendered_unconfirmed`), an input that
+`failed`, and a `skipped` attempt against a recipient it could not reach
+(presence unproven or not `present`, evidence stale, an outstanding Delivery,
+an earlier paste unconfirmed, or safe input refused). A trigger that finds the
+recipient present and working, its pane not yet proven quiet for 3 seconds
+(the screen changed, or the trigger cannot wait out the window), or another
+process's wake for the mailbox in flight records nothing, whatever the
+trigger: that is not now, not evidence about the mailbox, so the ladder keeps
+its position and the next eligible trigger tries again at once. Recorded,
+each of those spent a rung and started the minute, and a completion that
+landed during a long turn or while a person typed in the pane was refused at
+the recipient's next idle hook with nothing left to retry it (seen live
+2026-10-14 and 2026-10-15). New mail does not restart a pending policy.
 Read-only commands never type or advance it. There is no timer outside a
 bounded wait and the tab bar tick, which are eligible triggers; exhaustion is
-still a count, not an elapsed time. A tick records an attempt only against an
-idle (or absent, or stale) recipient: one that finds the recipient present and
-working, or another process's wake for the mailbox in flight, records nothing,
-because a clock firing during a long turn is not evidence that the mailbox is
-unreachable.
+still a count, not an elapsed time.
 
 A nudge is attention only. It proves nothing about reading.
 

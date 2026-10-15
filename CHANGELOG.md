@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Mail that landed while the coordinator was busy, or while a person was typing in its pane, could sit unread for good: the commit's attempt was recorded `skipped`, so the coordinator's next idle hook, inside the ladder's minute, was refused, and with no tick or later command nothing retried it (a `worker_done` seen live 2026-10-15). A trigger that finds the recipient working, its pane not yet proven quiet, or a wake in flight now records nothing, whatever the trigger: the ladder keeps its position and the next eligible trigger nudges at once. Only typed nudges, failed inputs, and skips for a recipient pod could not reach count toward `unreachable`, and every mutating command retries every mailbox of the Run with unread mail not already in an outstanding Delivery.
+
 ## [0.2.2] - 2026-10-15
 
 ### Changed

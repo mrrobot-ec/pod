@@ -45,12 +45,6 @@ impl Trigger {
         matches!(self, Trigger::IdleHook | Trigger::WaitTick)
     }
 
-    /// A clock pass rather than an event. A tick that finds the recipient
-    /// working proves nothing about it, so it records no attempt (8.2).
-    fn is_tick(self) -> bool {
-        matches!(self, Trigger::WaitTick | Trigger::BarTick)
-    }
-
     /// How long a nudge from this trigger may hold herdr's prompt call.
     fn patience(self) -> Patience {
         match self {
@@ -67,23 +61,18 @@ pub struct Ladder {
     pub last_at: Option<DateTime<Utc>>,
 }
 
-/// The first ladder attempt, made only for a mailbox with no current policy.
+/// The attempt a commit makes in the sender's process for a mailbox it
+/// wrote: the ladder's first attempt, or the retry this mutating command is
+/// eligible for (8.2).
 pub fn after_commit_nudge(engine: &Engine, mailbox: &str) -> Result<Option<WakeAttemptRow>> {
-    if crate::engine::waiting::waiter_matches(engine, mailbox)? {
-        return Ok(None);
-    }
-    let ladder = engine.store.read(|tx| ladder_position(tx, mailbox))?;
-    if ladder.attempts != 0 {
-        return Ok(None);
-    }
-    attempt(engine, mailbox, Trigger::MutatingCommand, |ladder| {
-        ladder.attempts == 0
-    })
+    on_trigger(engine, mailbox, Trigger::MutatingCommand)
 }
 
-/// A later ladder attempt. Only idle hooks and mutating commands are eligible,
-/// at most once per invocation and no sooner than 60 seconds after the prior
-/// stored attempt.
+/// One ladder attempt for an eligible trigger: at most once per invocation,
+/// never on a read-only command, never once the ladder is exhausted, and no
+/// sooner than 60 seconds after the prior recorded attempt. A trigger that
+/// finds "not now" records nothing (see `input_outcome`), so it neither
+/// spends a rung nor starts that minute.
 pub fn on_trigger(
     engine: &Engine,
     mailbox: &str,
@@ -114,7 +103,9 @@ pub struct TickReport {
 
 /// One ladder pass for every mailbox of `run` that holds unread mail: the Run
 /// mailbox and each `dispatch:<id>` with an unread row. Each goes through
-/// `on_trigger`, so the 60-second rule, the lock, and the ladder count hold.
+/// `on_trigger`, so the 60-second rule, the lock, and the ladder count hold,
+/// and a mailbox whose earlier triggers all found "not now" (and so recorded
+/// nothing) is retried like any other.
 pub fn tick(engine: &Engine, run: &RunId, trigger: Trigger) -> Result<TickReport> {
     if trigger == Trigger::ReadOnlyCommand {
         return Ok(TickReport {
@@ -159,6 +150,26 @@ pub fn tick_all(engine: &Engine, trigger: Trigger) -> Result<Vec<(RunId, TickRep
         .collect()
 }
 
+/// The mailboxes a mutating command of `run` retries (8.2): every one with
+/// unread mail that is not already in its consumer's hands through an
+/// outstanding Delivery, so a consuming `check` never nudges itself and a
+/// recipient reading a batch is left to acknowledge it.
+pub(crate) fn retry_mailboxes(engine: &Engine, run: &RunId) -> Result<Vec<String>> {
+    engine.store.read(|tx| {
+        let mut statement = tx.0.prepare(
+            "SELECT DISTINCT m.mailbox FROM messages m
+             WHERE m.run_id = ?1 AND m.read = 0 AND NOT EXISTS (
+                 SELECT 1 FROM deliveries d
+                 WHERE d.mailbox = m.mailbox AND d.status = 'outstanding'
+             )
+             ORDER BY m.mailbox",
+        )?;
+        Ok(statement
+            .query_map([run.as_str()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    })
+}
+
 pub fn ladder_position(tx: &Tx<'_>, mailbox: &str) -> Result<Ladder> {
     let attempts = wake_attempts::count_since_last_consume(tx, mailbox)?.min(u8::MAX as u32) as u8;
     let last_at =
@@ -187,34 +198,21 @@ pub fn ladder_position(tx: &Tx<'_>, mailbox: &str) -> Result<Ladder> {
     })
 }
 
-/// Mailboxes in this Run whose stored ladder has not been cleared by a
-/// consuming check. Used to turn any later mutation into one eligible retry.
-pub(crate) fn active_mailboxes(engine: &Engine, run: &RunId) -> Result<Vec<String>> {
-    engine.store.read(|tx| {
-        let mut statement = tx.0.prepare(
-            "SELECT DISTINCT w.mailbox FROM wake_attempts w
-             WHERE w.run_id = ?1 AND w.created_at > COALESCE((
-               SELECT MAX(e.at) FROM events e
-               WHERE e.type = 'mailbox.consumed'
-                 AND json_extract(e.detail, '$.mailbox') = w.mailbox
-             ), '')",
-        )?;
-        Ok(statement
-            .query_map([run.as_str()], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?)
-    })
-}
-
-/// Makes one stored attempt. `eligible` is checked again once this process
-/// owns the mailbox's in-flight lock, so two processes that both saw an
-/// eligible ladder cannot both type. A wake already in flight elsewhere is a
-/// failed wake precondition and is recorded `skipped` (8.2).
+/// Makes one attempt and records it when it is one (8.2). A `check --wait`
+/// waiter that matches the unread mail takes the place of a nudge. `eligible`
+/// is checked again once this process owns the mailbox's in-flight lock, so
+/// two processes that both saw an eligible ladder cannot both type; the
+/// process holding the lock records the attempt, and one that only found the
+/// lock taken has nothing of its own to record.
 fn attempt(
     engine: &Engine,
     mailbox: &str,
     trigger: Trigger,
     eligible: impl Fn(&Ladder) -> bool,
 ) -> Result<Option<WakeAttemptRow>> {
+    if crate::engine::waiting::waiter_matches(engine, mailbox)? {
+        return Ok(None);
+    }
     // The attempt is stamped when it starts, not after herdr returns: a
     // worker can consume its mail while herdr still waits for the turn, and
     // an attempt stamped after that consume would outlive it in the ladder.
@@ -235,19 +233,7 @@ fn attempt(
         .join(format!("wake-{}.lock", mailbox.replace([':', '/'], "_")));
     let _flight = match StateLock::try_acquire(&path) {
         Ok(Some(lock)) => lock,
-        // The process holding the lock records the attempt; a tick that
-        // only found it busy has nothing of its own to record.
-        Ok(None) if trigger.is_tick() => return Ok(None),
-        Ok(None) => {
-            let detail = "a wake for this mailbox is already in flight".to_owned();
-            return record(
-                engine,
-                started,
-                &run,
-                mailbox,
-                InputOutcome::Skipped(detail),
-            );
-        }
+        Ok(None) => return Ok(None),
         Err(error) => {
             let detail = format!("could not take the wake lock: {error}");
             return record(engine, started, &run, mailbox, InputOutcome::Failed(detail));
@@ -258,50 +244,49 @@ fn attempt(
         return Ok(None);
     }
 
-    match preconditions_and_input(engine, mailbox, unread.len(), trigger) {
+    match input_outcome(engine, mailbox, unread.len(), trigger) {
         Some(outcome) => record(engine, started, &run, mailbox, outcome),
         None => Ok(None),
     }
 }
 
-/// The outcome of one attempt, or `None` when a tick found the recipient
-/// present and working: that is not an attempt, so the ladder stays where
-/// it is and a long turn cannot exhaust it (seen live 2026-10-14).
-fn preconditions_and_input(
+/// The outcome of one attempt, or `None` for "not now": the recipient is
+/// present and working, or its pane is not yet proven quiet for 3 seconds
+/// (the screen changed, or this trigger cannot wait out the window). Neither
+/// says anything about the mailbox, so nothing is recorded: the ladder keeps
+/// its position and the next eligible trigger tries again at once. Until
+/// 2026-10-15 both were recorded `skipped`, so each spent a rung and started
+/// the 60-second spacing, and a completion that landed during a turn, or
+/// while a person typed in the pane, was refused at the recipient's very
+/// next idle hook with nothing left to retry it (seen live 2026-10-14, a
+/// tick during a long turn, and 2026-10-15, a `worker_done` while typing).
+fn input_outcome(
     engine: &Engine,
     mailbox: &str,
     count: usize,
     trigger: Trigger,
 ) -> Option<InputOutcome> {
     let recipient = match recipient(engine, mailbox) {
-        Ok(recipient) => recipient,
+        Ok(Some(recipient)) => recipient,
+        Ok(None) => {
+            return Some(InputOutcome::Skipped(
+                "recipient presence is not proven".into(),
+            ));
+        }
         Err(error) => return Some(InputOutcome::Failed(error.message)),
     };
-    let busy = recipient.as_ref().is_some_and(|recipient| {
-        recipient.presence.as_deref() == Some("present") && recipient.activity == "working"
-    });
-    if busy && trigger.is_tick() {
+    if recipient.presence.as_deref() != Some("present") {
+        return Some(InputOutcome::Skipped(
+            "recipient presence is not present".into(),
+        ));
+    }
+    if recipient.activity == "working" {
         return None;
     }
-    Some(input_outcome(engine, mailbox, count, trigger, recipient))
-}
-
-fn input_outcome(
-    engine: &Engine,
-    mailbox: &str,
-    count: usize,
-    trigger: Trigger,
-    recipient: Option<Recipient>,
-) -> InputOutcome {
-    let can_wait = trigger.can_wait();
-    let Some(recipient) = recipient else {
-        return InputOutcome::Skipped("recipient presence is not proven".into());
-    };
-    if recipient.presence.as_deref() != Some("present") {
-        return InputOutcome::Skipped("recipient presence is not present".into());
-    }
     if recipient.activity != "idle_at_prompt" {
-        return InputOutcome::Skipped("recipient activity is not idle_at_prompt".into());
+        return Some(InputOutcome::Skipped(
+            "recipient activity is not idle_at_prompt".into(),
+        ));
     }
     if engine
         .clock
@@ -310,14 +295,18 @@ fn input_outcome(
         .num_seconds()
         > FRESH_SECONDS
     {
-        return InputOutcome::Skipped("recipient observation is stale".into());
+        return Some(InputOutcome::Skipped(
+            "recipient observation is stale".into(),
+        ));
     }
     let outstanding = match engine.store.read(|tx| deliveries::outstanding(tx, mailbox)) {
         Ok(value) => value,
-        Err(error) => return InputOutcome::Failed(error.message),
+        Err(error) => return Some(InputOutcome::Failed(error.message)),
     };
     if outstanding.is_some() {
-        return InputOutcome::Skipped("mailbox has an outstanding Delivery".into());
+        return Some(InputOutcome::Skipped(
+            "mailbox has an outstanding Delivery".into(),
+        ));
     }
     let prior_unconfirmed = engine.store.read(|tx| {
         Ok(tx.0.query_row(
@@ -332,47 +321,42 @@ fn input_outcome(
     });
     match prior_unconfirmed {
         Ok(true) => {
-            return InputOutcome::Skipped(
+            return Some(InputOutcome::Skipped(
                 "an earlier paste is unconfirmed; input has not been proven cleared".into(),
-            );
+            ));
         }
-        Err(error) => return InputOutcome::Failed(error.message),
+        Err(error) => return Some(InputOutcome::Failed(error.message)),
         Ok(false) => {}
     }
 
-    match quiet(engine, &recipient.pane_id, can_wait) {
+    // `quiet` records the screen it saw, so a trigger that cannot wait leaves
+    // a snapshot the next trigger can prove the window from.
+    match quiet(engine, &recipient.pane_id, trigger.can_wait()) {
         Ok(Quiet::Proven) => {}
-        Ok(Quiet::Changed) => {
-            return InputOutcome::Skipped("pane was not quiet for 3 seconds".into());
-        }
-        Ok(Quiet::NotYetProven) => {
-            return InputOutcome::Skipped(
-                "pane quiet for 3 seconds is not yet proven and this command cannot wait; \
-                 its screen is recorded for the next trigger"
-                    .into(),
-            );
-        }
-        Err(error) => return InputOutcome::Failed(error.message),
+        Ok(Quiet::Changed | Quiet::NotYetProven) => return None,
+        Err(error) => return Some(InputOutcome::Failed(error.message)),
     }
     let (worker_handle, brief) = match brief_for(engine, mailbox, &recipient.handle) {
         Ok(value) => value,
-        Err(error) => return InputOutcome::Failed(error.message),
+        Err(error) => return Some(InputOutcome::Failed(error.message)),
     };
     let text = nudge_text(count, worker_handle.as_deref(), brief.as_deref());
     let dispatch = mailbox
         .strip_prefix("dispatch:")
         .and_then(|id| DispatchId::from_str(id).ok());
-    match safe_input::prompt_or_paste(
-        engine,
-        &recipient.handle,
-        &recipient.pane_id,
-        &text,
-        dispatch.as_ref(),
-        trigger.patience(),
-    ) {
-        Ok((outcome, _)) => outcome,
-        Err(error) => InputOutcome::Failed(error.message),
-    }
+    Some(
+        match safe_input::prompt_or_paste(
+            engine,
+            &recipient.handle,
+            &recipient.pane_id,
+            &text,
+            dispatch.as_ref(),
+            trigger.patience(),
+        ) {
+            Ok((outcome, _)) => outcome,
+            Err(error) => InputOutcome::Failed(error.message),
+        },
+    )
 }
 
 /// The text a nudge types. A worker's nudge names its handle and, when its

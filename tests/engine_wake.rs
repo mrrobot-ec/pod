@@ -6,12 +6,13 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use chrono::Utc;
+use pod::engine::reconcile;
 use pod::engine::safe_input::{InputOutcome, type_and_submit, wait_until_ready};
 use pod::engine::wake::{self, Trigger};
 use pod::error::Result;
 use pod::herdr::{
-    AgentInfo, AgentStatus, EventStream, Herdr, HerdrInfo, PaneInfo, ProcessInfo, PromptOutcome,
-    TabInfo, WorkspaceInfo, WorktreeCreate, WorktreeInfo,
+    AgentInfo, AgentStatus, EventStream, Herdr, HerdrEvent, HerdrInfo, PaneInfo, ProcessInfo,
+    PromptOutcome, TabInfo, WorkspaceInfo, WorktreeCreate, WorktreeInfo,
 };
 use pod::ids::{DeliveryId, DispatchId, MessageId, RunId};
 use pod::store::rows::{deliveries, messages, observations};
@@ -24,6 +25,7 @@ const TASK: &str = "task_000000000801";
 const DISPATCH: &str = "ctx_000000000801";
 const PANE: &str = "pane-wake";
 const MAILBOX: &str = "dispatch:ctx_000000000801";
+const COORDINATOR_PANE: &str = "pane-coordinator";
 
 fn seed(env: &TestEnv) {
     let now = Clock::now(env.clock.as_ref());
@@ -83,6 +85,10 @@ fn seed(env: &TestEnv) {
 }
 
 fn add_message(env: &TestEnv, id: &str, kind: &str) {
+    add_message_to(env, MAILBOX, id, kind);
+}
+
+fn add_message_to(env: &TestEnv, mailbox: &str, id: &str, kind: &str) {
     let now = Clock::now(env.clock.as_ref());
     env.engine
         .store
@@ -93,7 +99,7 @@ fn add_message(env: &TestEnv, id: &str, kind: &str) {
                     sequence: None,
                     id: MessageId::from_str(id)?,
                     run_id: RunId::from_str(RUN)?,
-                    mailbox: MAILBOX.into(),
+                    mailbox: mailbox.into(),
                     from_handle: "coordinator".into(),
                     subject: "mail".into(),
                     body: None,
@@ -144,6 +150,9 @@ fn first_attempt(env: &TestEnv) -> (String, String) {
     (row.outcome, row.detail.unwrap_or_default())
 }
 
+/// 8.2: an absent, stale, or mid-delivery recipient is a recorded `skipped`
+/// attempt. A working recipient, an unproven quiet window, and a wake in
+/// flight are "not now": nothing is recorded and nothing is typed.
 #[test]
 fn nudge_skipped_unless_present_idle_fresh_quiet_no_outstanding_delivery_no_inflight() {
     // Presence: herdr detects no agent in the pane and the stored evidence
@@ -178,15 +187,20 @@ fn nudge_skipped_unless_present_idle_fresh_quiet_no_outstanding_delivery_no_infl
     assert_eq!(outcome, "skipped");
     assert!(detail.contains("presence"), "{detail}");
 
-    // Idle: herdr reports the agent working.
+    // Idle: herdr reports the agent working. Not now, nothing recorded.
     let env = TestEnv::new();
     seed(&env);
     env.herdr
         .set_agent("worker", worker_agent(PANE, AgentStatus::Working));
     add_message(&env, "msg_000000000801", "status");
-    let (outcome, detail) = first_attempt(&env);
-    assert_eq!(outcome, "skipped");
-    assert!(detail.contains("idle_at_prompt"), "{detail}");
+    prove_quiet(&env);
+    assert!(
+        wake::after_commit_nudge(&env.engine, MAILBOX)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(position(&env).attempts, 0);
+    assert!(env.herdr.submissions().is_empty());
 
     // Fresh: no live evidence, and the stored idle observation is 16 s old.
     let env = TestEnv::new();
@@ -200,18 +214,19 @@ fn nudge_skipped_unless_present_idle_fresh_quiet_no_outstanding_delivery_no_infl
     assert!(detail.contains("stale"), "{detail}");
 
     // Quiet: the pane changed after its last snapshot, so the 3-second
-    // window restarts and the send, which cannot wait, skips.
+    // window restarts and the send, which cannot wait, records nothing.
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000801", "status");
     wake::note_screen(&env.engine, PANE);
     env.herdr.set_screen(PANE, "› \nworking...");
     env.clock.advance(Duration::from_secs(3));
-    let row = wake::after_commit_nudge(&env.engine, MAILBOX)
-        .unwrap()
-        .unwrap();
-    assert_eq!(row.outcome, "skipped");
-    assert!(row.detail.unwrap().contains("quiet"));
+    assert!(
+        wake::after_commit_nudge(&env.engine, MAILBOX)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(position(&env).attempts, 0);
     assert!(env.herdr.submissions().is_empty());
 
     // Outstanding unacknowledged Delivery.
@@ -254,11 +269,22 @@ fn nudge_skipped_unless_present_idle_fresh_quiet_no_outstanding_delivery_no_infl
     )
     .unwrap();
     lock.try_lock().unwrap();
-    let (outcome, detail) = first_attempt(&env);
-    assert_eq!(outcome, "skipped");
-    assert!(detail.contains("in flight"), "{detail}");
+    prove_quiet(&env);
+    assert!(
+        wake::after_commit_nudge(&env.engine, MAILBOX)
+            .unwrap()
+            .is_none()
+    );
     drop(lock);
+    assert_eq!(position(&env).attempts, 0);
     assert!(env.herdr.submissions().is_empty());
+}
+
+fn position(env: &TestEnv) -> wake::Ladder {
+    env.engine
+        .store
+        .read(|tx| wake::ladder_position(tx, MAILBOX))
+        .unwrap()
 }
 
 #[test]
@@ -511,12 +537,16 @@ fn never_bare_enter() {
     );
 }
 
+/// Five nudges typed a minute apart with no consuming check make the
+/// mailbox unreachable; a trigger inside the minute, or a read-only one,
+/// does nothing.
 #[test]
 fn ladder_max_5_60s_apart_eligible_triggers_only_then_unreachable() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000805", "status");
-    wake::after_commit_nudge(&env.engine, MAILBOX).unwrap();
+    let (outcome, _) = first_attempt(&env);
+    assert_eq!(outcome, "delivered");
     assert!(
         wake::on_trigger(&env.engine, MAILBOX, Trigger::ReadOnlyCommand)
             .unwrap()
@@ -534,12 +564,12 @@ fn ladder_max_5_60s_apart_eligible_triggers_only_then_unreachable() {
         if expected > 2 {
             env.clock.advance(Duration::from_secs(60));
         }
-        env.herdr.set_screen(PANE, "busy input");
         let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::MutatingCommand)
             .unwrap()
             .unwrap();
-        assert_eq!(row.attempt, expected);
+        assert_eq!((row.attempt, row.outcome.as_str()), (expected, "delivered"));
     }
+    assert_eq!(env.herdr.submissions().len(), 5);
     let ladder = env
         .engine
         .store
@@ -586,22 +616,31 @@ fn tick_runs_one_attempt_per_mailbox_and_honours_the_sixty_second_rule() {
     );
 }
 
+/// A recipient pod could not find (stale evidence, no live agent) and an
+/// input herdr failed are attempts: both count.
 #[test]
 fn ladder_counts_skipped_and_failed() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000806", "status");
-    env.herdr.set_screen(PANE, "not empty");
-    wake::after_commit_nudge(&env.engine, MAILBOX).unwrap();
-    env.clock.advance(Duration::from_secs(60));
-    env.herdr.set_screen(PANE, "still not empty");
-    wake::on_trigger(&env.engine, MAILBOX, Trigger::IdleHook).unwrap();
-    let ladder = env
-        .engine
-        .store
-        .read(|tx| wake::ladder_position(tx, MAILBOX))
+    env.herdr.remove_agent("worker");
+    env.clock.advance(Duration::from_secs(16));
+    let row = wake::after_commit_nudge(&env.engine, MAILBOX)
+        .unwrap()
         .unwrap();
-    assert_eq!(ladder.attempts, 2);
+    assert_eq!((row.attempt, row.outcome.as_str()), (1, "skipped"));
+    assert!(row.detail.unwrap().contains("stale"));
+    env.clock.advance(Duration::from_secs(60));
+    env.herdr
+        .set_agent("worker", worker_agent(PANE, AgentStatus::Idle));
+    prove_quiet(&env);
+    env.herdr
+        .fail_agent_prompt_with(ErrorCode::HerdrUnreachable, "herdr did not answer");
+    let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::IdleHook)
+        .unwrap()
+        .unwrap();
+    assert_eq!((row.attempt, row.outcome.as_str()), (2, "failed"));
+    assert_eq!(position(&env).attempts, 2);
 }
 
 #[test]
@@ -609,7 +648,8 @@ fn new_mail_does_not_restart_ladder() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000807", "status");
-    wake::after_commit_nudge(&env.engine, MAILBOX).unwrap();
+    let (outcome, _) = first_attempt(&env);
+    assert_eq!(outcome, "delivered");
     add_message(&env, "msg_000000000808", "status");
     assert!(
         wake::after_commit_nudge(&env.engine, MAILBOX)
@@ -668,11 +708,13 @@ fn wake_ladder_survives_restart() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_00000000080b", "status");
-    wake::after_commit_nudge(&env.engine, MAILBOX).unwrap();
+    let (outcome, _) = first_attempt(&env);
+    assert_eq!(outcome, "delivered");
     for _ in 0..3 {
         env.clock.advance(Duration::from_secs(60));
-        env.herdr.set_screen(PANE, "occupied");
-        wake::on_trigger(&env.engine, MAILBOX, Trigger::IdleHook).unwrap();
+        wake::on_trigger(&env.engine, MAILBOX, Trigger::IdleHook)
+            .unwrap()
+            .unwrap();
     }
     // A new process over the same store, after herdr restarted and ran the
     // startup hook (Review Focus 5).
@@ -1367,38 +1409,35 @@ fn preamble_is_injected_and_recorded_once() {
 }
 
 /// Spec 16 against 8.2's 3-second quiet window: a send returns at once. With
-/// no proof of quiet yet, the attempt is `skipped` with the reason and the
-/// screen is recorded; the next eligible trigger, 60 s later, finds the pane
-/// unchanged and types without waiting.
+/// no proof of quiet yet it records nothing but the screen; the next
+/// eligible trigger, as soon as 3 s later, finds the pane unchanged and
+/// types without waiting, as attempt 1.
 #[test]
 fn a_send_never_waits_for_the_quiet_window() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000807", "status");
     let started = std::time::Instant::now();
-    let row = wake::after_commit_nudge(&env.engine, MAILBOX)
-        .unwrap()
-        .unwrap();
+    assert!(
+        wake::after_commit_nudge(&env.engine, MAILBOX)
+            .unwrap()
+            .is_none()
+    );
     assert!(
         started.elapsed() < Duration::from_secs(1),
         "{:?}",
         started.elapsed()
     );
-    assert_eq!(row.outcome, "skipped");
-    assert!(
-        row.detail.as_deref().unwrap().contains("cannot wait"),
-        "{row:?}"
-    );
+    assert_eq!(position(&env).attempts, 0);
     assert!(env.herdr.submissions().is_empty());
 
-    env.clock.advance(Duration::from_secs(60));
+    env.clock.advance(Duration::from_secs(5));
     let started = std::time::Instant::now();
     let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::MutatingCommand)
         .unwrap()
         .unwrap();
     assert!(started.elapsed() < Duration::from_secs(1));
-    assert_eq!(row.outcome, "delivered", "{row:?}");
-    assert_eq!(row.attempt, 2);
+    assert_eq!((row.attempt, row.outcome.as_str()), (1, "delivered"));
 }
 
 /// herdr's hook process has no caller waiting on it, so with no snapshot it
@@ -1584,10 +1623,10 @@ fn a_prompt_is_withheld_while_a_person_is_typing_and_recorded_as_interruption() 
 
 /// Seen live 2026-10-14: a waiting coordinator ticked every minute against a
 /// worker that was working for 20 minutes, and five `skipped` attempts made
-/// the mailbox unreachable while the worker was fine. A tick that finds the
-/// recipient working is not an attempt; a command still is (8.2).
+/// the mailbox unreachable while the worker was fine. Finding the recipient
+/// working is not an attempt, whatever the trigger (8.2).
 #[test]
-fn a_tick_records_nothing_against_a_working_recipient() {
+fn nothing_is_recorded_against_a_working_recipient() {
     let env = TestEnv::new();
     seed(&env);
     add_message(&env, "msg_000000000820", "status");
@@ -1611,23 +1650,23 @@ fn a_tick_records_nothing_against_a_working_recipient() {
     assert_eq!((ladder.attempts, ladder.exhausted), (0, false));
     assert!(env.herdr.submissions().is_empty());
 
-    // A mutating command against the same busy worker still counts.
-    let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::MutatingCommand)
-        .unwrap()
-        .unwrap();
-    assert_eq!((row.attempt, row.outcome.as_str()), (1, "skipped"));
-    assert_eq!(
-        row.detail.as_deref(),
-        Some("recipient activity is not idle_at_prompt")
-    );
+    // Neither does a mutating command or an idle hook against the same busy
+    // worker (the mail that lands during a turn).
+    for trigger in [Trigger::MutatingCommand, Trigger::IdleHook] {
+        assert!(
+            wake::on_trigger(&env.engine, MAILBOX, trigger)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(position(&env).attempts, 0);
 
-    // Idle again: one attempt per minute, as before.
+    // Idle again: the first attempt, at once.
     env.herdr
         .set_agent("worker", worker_agent(PANE, AgentStatus::Idle));
-    env.clock.advance(Duration::from_secs(61));
     let report = wake::tick(&env.engine, &run, Trigger::WaitTick).unwrap();
     assert_eq!(report.attempts.len(), 1);
-    assert_eq!(report.attempts[0].attempt, 2);
+    assert_eq!(report.attempts[0].attempt, 1);
     env.clock.advance(Duration::from_secs(30));
     assert!(
         wake::tick(&env.engine, &run, Trigger::BarTick)
@@ -1637,7 +1676,7 @@ fn a_tick_records_nothing_against_a_working_recipient() {
     );
     env.clock.advance(Duration::from_secs(31));
     let report = wake::tick(&env.engine, &run, Trigger::BarTick).unwrap();
-    assert_eq!(report.attempts[0].attempt, 3);
+    assert_eq!(report.attempts[0].attempt, 2);
 }
 
 /// Review focus 2: the waiting coordinator's tick and the tab bar tick run
@@ -1703,17 +1742,13 @@ fn a_bar_tick_never_sleeps() {
     add_message(&env, "msg_000000000822", "status");
     let run = RunId::from_str(RUN).unwrap();
 
-    // No snapshot yet: the quiet window is not proven and the bar cannot wait.
+    // No snapshot yet: the quiet window is not proven and the bar cannot
+    // wait, so it records the screen and nothing else.
     let started = std::time::Instant::now();
     let report = wake::tick(&env.engine, &run, Trigger::BarTick).unwrap();
     assert!(started.elapsed() < Duration::from_secs(1));
-    assert!(
-        report.attempts[0]
-            .detail
-            .as_deref()
-            .unwrap()
-            .contains("cannot wait")
-    );
+    assert!(report.attempts.is_empty(), "{report:?}");
+    assert!(env.herdr.submissions().is_empty());
 
     // Proven quiet, and herdr still calls the agent inactive: no retry loop
     // and no readiness wait, the paste fallback runs at once.
@@ -1829,16 +1864,17 @@ fn interruption_clears_only_on_a_bare_read() {
         .unwrap();
     assert!(interrupted(&env), "herdr state is not a read of the input");
 
-    // The person keeps typing, so the screen changes: a command's attempt
-    // cannot prove the quiet window and never reads the input.
+    // The person keeps typing, so the screen changes: a command cannot prove
+    // the quiet window, records nothing, and never reads the input.
     env.herdr
         .set_screen(PANE, &codex_screen(&format!("{typed} more")));
     env.clock.advance(Duration::from_secs(61));
-    let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::MutatingCommand)
-        .unwrap()
-        .unwrap();
-    assert!(row.detail.unwrap().contains("cannot wait"));
-    assert!(interrupted(&env), "an attempt that read no input");
+    assert!(
+        wake::on_trigger(&env.engine, MAILBOX, Trigger::MutatingCommand)
+            .unwrap()
+            .is_none()
+    );
+    assert!(interrupted(&env), "a trigger that read no input");
 
     // A screen without an input line proves nothing either.
     env.herdr.set_screen(PANE, "Working (12s)");
@@ -1912,4 +1948,102 @@ fn a_consume_during_the_prompt_clears_the_attempt_it_answered() {
         .read(|tx| wake::ladder_position(tx, MAILBOX))
         .unwrap();
     assert_eq!(ladder.attempts, 0, "the consume cleared the ladder");
+}
+
+/// The coordinator's pane as herdr reports it, observed on the test clock.
+fn coordinator_agent(env: &TestEnv, status: AgentStatus) {
+    env.herdr
+        .add_pane(COORDINATOR_PANE, "term-coordinator", "ws");
+    env.herdr.set_agent(
+        "coordinator",
+        AgentInfo {
+            name: "coordinator".into(),
+            kind: "claude".into(),
+            pane_id: COORDINATOR_PANE.into(),
+            pid: 2,
+            status,
+            session_id: None,
+            session_path: None,
+            needs_input: vec![],
+            observed_at: Clock::now(env.clock.as_ref()),
+        },
+    );
+}
+
+/// Seen live 2026-10-15: a `worker_done` landed while a person was typing in
+/// the coordinator's pane. The commit could not prove the quiet window and
+/// recorded a skipped attempt, and the coordinator's idle hook 52 seconds
+/// later was refused by the 60-second rule. Nothing else triggered, so the
+/// completion sat unread until the person asked. "Not now" is not an
+/// attempt: nothing is recorded, and the next idle hook delivers.
+#[test]
+fn the_coordinators_next_idle_delivers_mail_that_landed_while_its_screen_was_changing() {
+    let env = TestEnv::new();
+    seed(&env);
+    let mailbox = format!("run:{RUN}");
+    coordinator_agent(&env, AgentStatus::Idle);
+    wake::note_screen(&env.engine, COORDINATOR_PANE);
+    env.clock.advance(Duration::from_secs(3));
+    env.herdr
+        .set_screen(COORDINATOR_PANE, "› is the advisor done ye");
+    add_message_to(&env, &mailbox, "msg_000000000830", "worker_done");
+    assert!(
+        wake::after_commit_nudge(&env.engine, &mailbox)
+            .unwrap()
+            .is_none()
+    );
+    let ladder = env
+        .engine
+        .store
+        .read(|tx| wake::ladder_position(tx, &mailbox))
+        .unwrap();
+    assert_eq!((ladder.attempts, ladder.last_at), (0, None));
+    assert!(env.herdr.submissions().is_empty());
+
+    // The person sends their message and the coordinator answers; 52 s after
+    // the commit herdr reports it idle again and its screen has settled.
+    env.clock.advance(Duration::from_secs(52));
+    env.herdr.set_screen(COORDINATOR_PANE, "› ");
+    coordinator_agent(&env, AgentStatus::Idle);
+    reconcile::event(
+        &env.engine,
+        HerdrEvent::AgentStatusChanged {
+            pane_id: COORDINATOR_PANE.into(),
+            status: AgentStatus::Idle,
+            needs_input: vec![],
+        },
+    )
+    .unwrap();
+    assert_eq!(env.herdr.submissions().len(), 1, "{:?}", env.herdr.calls());
+    let ladder = env
+        .engine
+        .store
+        .read(|tx| wake::ladder_position(tx, &mailbox))
+        .unwrap();
+    assert_eq!((ladder.attempts, ladder.exhausted), (1, false));
+}
+
+/// The same for a recipient that is working when the mail lands: the commit
+/// records nothing, and the idle hook inside the minute delivers attempt 1.
+#[test]
+fn mail_that_lands_during_a_turn_is_delivered_at_the_recipients_next_idle() {
+    let env = TestEnv::new();
+    seed(&env);
+    env.herdr
+        .set_agent("worker", worker_agent(PANE, AgentStatus::Working));
+    add_message(&env, "msg_000000000831", "status");
+    assert!(
+        wake::after_commit_nudge(&env.engine, MAILBOX)
+            .unwrap()
+            .is_none()
+    );
+    env.clock.advance(Duration::from_secs(20));
+    env.herdr
+        .set_agent("worker", worker_agent(PANE, AgentStatus::Idle));
+    prove_quiet(&env);
+    let row = wake::on_trigger(&env.engine, MAILBOX, Trigger::IdleHook)
+        .unwrap()
+        .unwrap();
+    assert_eq!((row.attempt, row.outcome.as_str()), (1, "delivered"));
+    assert_eq!(env.herdr.submissions().len(), 1);
 }
