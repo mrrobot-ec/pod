@@ -1,0 +1,56 @@
+# herdr plugin manifest for pod. herdr 0.9.3 reads `herdr-plugin.toml`
+# (linked from https://herdr.dev/llms.txt -> plugins.mdx), not `plugin.toml`.
+# Lines relied on from plugins.mdx (v0.9.3):
+#   "A plugin is a directory with a `herdr-plugin.toml` manifest and commands Herdr can launch."
+#   "Top-level `id`, `name`, `version`, and `min_herdr_version` are required."
+#   "`command` values are argv arrays. Herdr does not run them through a shell"
+#   [[events]] takes `on = "<event>"` and `command`; [[actions]] takes `id`, `title`, `command`.
+#   "Use `platforms = [\"linux\", \"macos\", \"windows\"]` to declare where the plugin can run."
+#   "The install preview lists every startup command" (spec 15: it also lists every hook).
+id = "pod"
+name = "pod"
+version = "0.2.0"
+min_herdr_version = "0.9.3"
+description = "Supervised multi-agent orchestration for herdr"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["sh", "scripts/install.sh"]
+
+[[startup]]
+command = ["pod", "hook", "startup"]
+
+[[events]]
+on = "pane.exited"
+command = ["pod", "hook", "event"]
+
+[[events]]
+on = "pane.closed"
+command = ["pod", "hook", "event"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["pod", "hook", "event"]
+
+[[actions]]
+id = "open-board"
+title = "pod: open board"
+command = ["pod", "board"]
+
+# Opens the popup pane declared below, through the running herdr binary.
+[[actions]]
+id = "worker-list"
+title = "pod: worker list"
+command = ["sh", "-c", "exec \"${HERDR_BIN_PATH:-herdr}\" plugin pane open --plugin pod --entrypoint worker-list"]
+
+[[actions]]
+id = "doctor"
+title = "pod: doctor"
+command = ["pod", "doctor"]
+
+[[panes]]
+id = "worker-list"
+title = "pod workers"
+placement = "popup"
+# A popup closes when its command exits; keep the list on screen until Enter.
+command = ["sh", "-c", "pod worker-list; printf '\\n[Enter to close] '; read -r _"]

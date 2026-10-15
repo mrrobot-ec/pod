@@ -1,0 +1,87 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    }
+  ],
+  "_args": [
+    "worker-start",
+    "--spec",
+    "x",
+    "--agent",
+    "claude"
+  ],
+  "_fake_herdr": {
+    "POD_FAKE_AGENT_START_ERROR": "timeout"
+  },
+  "id": "cd1ba89a-2c43-4d4c-a36a-b830b0540043",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "taskId": "task_503e508f9e42",
+    "dispatchId": "ctx_b431c624c4a1",
+    "state": "failed",
+    "stage": "agent_readiness",
+    "failedStage": "agent_readiness",
+    "lastError": "timeout",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "high"
+      },
+      "effective": {
+        "agent": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "high"
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      }
+    ],
+    "residualResources": [
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+        "surface": "visible"
+      }
+    ],
+    "mutation": {
+      "requestId": "e7f31760-babd-439f-b61f-789b3d385b1d",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "task-create",
+        "--spec",
+        "x"
+      ],
+      "bind": {
+        "task": "/task/id"
+      }
+    },
+    {
+      "seed_worker": {
+        "task": "{task}",
+        "terminal": "term_worker",
+        "handle": "sol-a1b2"
+      },
+      "bind": {
+        "dispatch": "/dispatch/id"
+      }
+    }
+  ],
+  "_args": [
+    "worker-read",
+    "--dispatch",
+    "{dispatch}",
+    "--limit",
+    "3"
+  ],
+  "id": "1e0295d4-f5ab-4fff-99f7-762a15ac0ede",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_f4e457f62961",
+    "source": "transcript",
+    "sourceIdentity": "nFmfjZbv47yia-fN8qo_UQcQfA89kt_S",
+    "provider": "codex",
+    "transcript": {
+      "messages": [
+        {
+          "id": "ctc_0d14760a2d23e062016acd5e18f8c88190a55d2e269855de36",
+          "role": "assistant",
+          "blocks": [
+            {
+              "type": "tool-call",
+              "name": "exec",
+              "input": "const r = await tools.exec_command({cmd:\"orca orchestration send --from term_e7d595c8-2746-4b72-80c2-5879b8a28549 --dispatch-capability [dispatch capability redacted] --type worker_done --subject \\\"T0 skeleton committed and green\\\" --body \\\"Implemented and committed T0 on main as 64345f2, including ",
+              "callId": "call_1c8b4e2e996c41a6b7e2d2e83e7b3267"
+            }
+          ],
+          "timestamp": 1791843867614,
+          "source": "transcript"
+        },
+        {
+          "id": "ctco_01a13237-9cac-7542-9fec-df4c6dd738eb",
+          "role": "tool",
+          "blocks": [
+            {
+              "type": "tool-result",
+              "output": "Script completed\nWall time 0.2 seconds\nOutput:\nSent msg_63a9f09973c8"
+            }
+          ],
+          "timestamp": 1791843867820,
+          "source": "transcript"
+        }
+      ],
+      "nextCursor": "owr1_eyJ2IjoxLCJkIjoiY3R4X2Y0ZTQ1N2Y2Mjk2MSIsInMiOiJ0cmFuc2NyaXB0IiwiaSI6Im5GbWZqWmJ2NDd5aWEtZk44cW9fVVFjUWZBODlrdF9TIiwicCI6MTg1MTMzMSwiYyI6ImlyVExzbjNzTElMSnZsWjJwSm9NN0NGQXNqcUJlTmwwIn0",
+      "limited": true,
+      "returnedMessageCount": 3
+    },
+    "cursor": "owr1_eyJ2IjoxLCJkIjoiY3R4X2Y0ZTQ1N2Y2Mjk2MSIsInMiOiJ0cmFuc2NyaXB0IiwiaSI6Im5GbWZqWmJ2NDd5aWEtZk44cW9fVVFjUWZBODlrdF9TIiwicCI6MTg1MTMzMSwiYyI6ImlyVExzbjNzTElMSnZsWjJwSm9NN0NGQXNqcUJlTmwwIn0",
+    "status": {
+      "worker": "unsupervised",
+      "terminal": "running",
+      "liveness": "live"
+    },
+    "fallbackReason": null,
+    "warnings": [
+      "Dispatch capability tokens were redacted from transcript output."
+    ],
+    "sourceExact": true,
+    "contentComplete": false,
+    "clipping": [
+      "message_limit_or_scan_window"
+    ],
+    "projection": {
+      "id": "ctx_f4e457f62961",
+      "dispatchId": "ctx_f4e457f62961",
+      "taskId": "task_e62309f8a66f",
+      "runId": "run_31fc2c96a4a1",
+      "role": "worker",
+      "parent": null,
+      "provider": {
+        "id": "codex",
+        "model": "gpt-5.6-sol"
+      },
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "unsupervised",
+        "dispatch": "completed",
+        "detail": null,
+        "activity": "unknown"
+      },
+      "outcome": "succeeded",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "stale_status",
+        "observedAt": 1791843869805
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "stale",
+        "lastObservedAt": 1791843869805
+      },
+      "resource": {
+        "state": "absent",
+        "reason": "unsupervised"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": [
+          "stale",
+          "root_completion"
+        ],
+        "requiresAction": false
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

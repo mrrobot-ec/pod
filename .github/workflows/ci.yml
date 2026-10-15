@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo build --all-targets
+      - run: cargo test
+      - run: cargo clippy --all-targets -- -D warnings
+      - name: shellcheck
+        # The script is the same on both OSes; the Ubuntu image ships shellcheck.
+        if: runner.os == 'Linux'
+        run: shellcheck scripts/install.sh
+
+  # Spec 17 item 4: the real-herdr suite runs on macOS and Linux. Advisory
+  # until one green run on GitHub has been observed.
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            asset: herdr-macos-aarch64
+            sha256: 5173a3e0ae42d5d1ab7ebfa5d5e6329f7c3d23f8e1a3677c7ce3231da2884157
+          - os: ubuntu-24.04
+            asset: herdr-linux-x86_64
+            sha256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97.1"
+      - uses: Swatinem/rust-cache@v2
+      # Official v0.9.3 install docs list these release asset names:
+      # https://raw.githubusercontent.com/herdrdev/herdr/v0.9.3/docs/next/website/src/content/docs/install.mdx
+      # The release publishes no checksum file; the digests were measured from
+      # the immutable v0.9.3 tag assets.
+      - name: Install Herdr 0.9.3
+        run: |
+          curl -fsSL "https://github.com/herdrdev/herdr/releases/download/v0.9.3/${{ matrix.asset }}" -o "$RUNNER_TEMP/herdr"
+          echo "${{ matrix.sha256 }}  $RUNNER_TEMP/herdr" | shasum -a 256 -c -
+          chmod +x "$RUNNER_TEMP/herdr"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Run isolated real-Herdr e2e suite
+        run: scripts/e2e.sh

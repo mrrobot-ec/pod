@@ -1,0 +1,94 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    }
+  ],
+  "_args": [
+    "inbox",
+    "--limit",
+    "2"
+  ],
+  "id": "41a1ba5f-f51d-4e14-bfaa-f36f78215d66",
+  "ok": true,
+  "result": {
+    "messages": [
+      {
+        "id": "msg_46153b8b8072",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_4cec7bd6-e2f5-4f81-bc4b-5282e93d25c9",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "T12 packaging done",
+        "body": "Implemented pod skills get (src/skills.rs, env.rs), herdr-plugin.toml (not plugin.toml, per your approval; verified with herdr plugin link), scripts/install.sh, skill stubs, ci.yml and release.yml, plus tests/cli_skills.rs and tests/plugin_manifest.rs; all five listed tests exist and pass (link dry ",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_80e2518e2279\",\"dispatchId\":\"ctx_0a06bac7f837\",\"outcome\":\"succeeded\",\"filesModified\":[\"herdr-plugin.toml\",\"scripts/install.sh\",\"src/skills.rs\",\"src/cli/commands/env.rs\",\"skills/coordinator/SKILL.md\",\"skills/worker/SKILL.md\",\".github/workflows/ci.yml\",\".github/workflows/release.yml\",\"t",
+        "read": 0,
+        "sequence": 21093,
+        "created_at": "2026-10-12T23:23:25Z",
+        "delivered_at": null,
+        "sender_pane_key": "14465ea5-70a6-4a8e-a271-46dc65096a12:ff83b901-2339-4af3-a22b-60fa1483121f",
+        "delivery_contract": "current_delivery",
+        "pointer_enter_pending": 0,
+        "pointer_pty_id": null,
+        "pointer_process_incarnation": null
+      },
+      {
+        "id": "msg_e5bfb5fd0449",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_ddad577c-2146-4e16-a166-c22e151d9110",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "T6 board export done",
+        "body": "Implemented board::export (raw SQL, bulk queries), board::write (temp file + rename, 0600/0700), sidebar_status and contract v3 types; all 9 listed tests exist and pass (the 500-task test passes in release, ignored in debug), and cargo build, test and clippy -D warnings are clean. The dagr v3 schema",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_5c34c48cc694\",\"dispatchId\":\"ctx_e4ab636bde25\",\"outcome\":\"succeeded\",\"filesModified\":[\"src/board/mod.rs\",\"src/board/contract.rs\",\"tests/board_export.rs\",\"tests/board/dagr-v3.schema.json\",\"Cargo.toml\",\"Cargo.lock\",\"docs/reviews/t6-board-notes.md\"],\"reportPath\":\"docs/reviews/t6-board-no",
+        "read": 1,
+        "sequence": 21092,
+        "created_at": "2026-10-12T23:23:06Z",
+        "delivered_at": null,
+        "sender_pane_key": "a069eb03-d63e-4eac-82a3-73aa9797d829:cc0c72a9-7cb6-4ae8-91c2-adcc7f994b1c",
+        "delivery_contract": "current_delivery",
+        "pointer_enter_pending": 0,
+        "pointer_pty_id": null,
+        "pointer_process_incarnation": null
+      }
+    ],
+    "count": 2
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

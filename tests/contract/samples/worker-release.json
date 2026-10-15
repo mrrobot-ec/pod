@@ -1,0 +1,46 @@
+{
+  "_provenance": "hand-authored",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "worker-start",
+        "--spec",
+        "x",
+        "--agent",
+        "claude"
+      ],
+      "bind": {
+        "dispatch": "/dispatch/id"
+      }
+    }
+  ],
+  "_args": [
+    "worker-release",
+    "--dispatch",
+    "{dispatch}"
+  ],
+  "id": "00000000-0000-4000-8000-000000000000",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_f4e457f62961",
+    "state": "released",
+    "archive": {
+      "source": "final_screen",
+      "status": "preserved"
+    },
+    "mutation": {
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

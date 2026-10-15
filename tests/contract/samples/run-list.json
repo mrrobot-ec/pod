@@ -1,0 +1,43 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    }
+  ],
+  "_args": [
+    "run-list"
+  ],
+  "id": "7977ef15-c092-469c-bca5-2582c90dd7ae",
+  "ok": true,
+  "result": {
+    "runs": [
+      {
+        "id": "run_31fc2c96a4a1",
+        "objective": "pod v1 implementation: waves 0-4 of docs/plans/2026-10-12-implementation-plan.md (sol + sonnet workers, opus reviews)",
+        "coordinator_handle": "term_012ef020-714e-49c3-a64b-9f229af38790",
+        "consumer_generation": 1,
+        "legacy": 0,
+        "created_at": "2026-10-12T22:09:31Z",
+        "updated_at": "2026-10-12T22:09:31Z"
+      },
+      {
+        "id": "run_13aeb1ed30ae",
+        "objective": "Sync pod v1 docs to the current spec, then review the spec additions and docs",
+        "coordinator_handle": null,
+        "consumer_generation": 2,
+        "legacy": 0,
+        "created_at": "2026-10-12T16:35:28Z",
+        "updated_at": "2026-10-12T22:09:31Z"
+      }
+    ],
+    "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI2LTEwLTEyIDE2OjM1OjI4IiwiaWQiOiJydW5fMTNhZWIxZWQzMGFlIn0"
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

@@ -1,0 +1,1609 @@
+# Differences from Orca that spec section 14 allows, by command and JSON path.
+#
+# The harness compares pod's output with the `result` of each Orca sample
+# (Orca's envelope fields `id`, `ok`, `_meta` and the harness-only
+# `_provenance` and `_args` keys are stripped first; pod's flat envelope loses
+# `ok`). Each entry names the section 14 row it comes from in `difference`.
+#
+#   command     the pod command (the sample's first argument)
+#   path        `$.field`, `$.array[].field`, or `<prefix>.**` for a subtree
+#   kind        missing (in sample, not in pod) | extra (in pod, not in sample)
+#               | type (both, different JSON type); omit to allow any kind
+#
+# Added field names follow the casing of their siblings in the Orca sample
+# (camelCase in worker rows, snake_case in task and dispatch rows), because the
+# contract, not pod's provisional reference layouts, settles names. Every path
+# must exist in a sample of its command (for `extra`, its parent must); the
+# test `allowed_differences_name_their_section_14_row` enforces both.
+#
+# A reviewer who un-ignores a contract test adds an entry here only for a
+# section 14 row. Any other difference is fixed in pod.
+
+[[allow]]
+command = "worker-list"
+path = "$.waitingOnFailedDependency"
+kind = "extra"
+difference = "Failed dependency: attention category and next action"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.liveness"
+kind = "type"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.activity"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.presence"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.needsInput"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.liveness"
+kind = "type"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.activity"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.presence"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.needsInput"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-read"
+path = "$.projection.liveness"
+kind = "type"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-read"
+path = "$.projection.activity"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-read"
+path = "$.projection.presence"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-read"
+path = "$.projection.needsInput"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.liveness"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.activity"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.presence"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.needsInput"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.evidenceSource"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.herdrStatus"
+kind = "extra"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.preambleInput"
+kind = "extra"
+difference = "Typing into a pane: paste, confirm, Enter; outcome recorded"
+
+[[allow]]
+command = "worker-show"
+path = "$.wakeLadder.**"
+kind = "extra"
+difference = "Undelivered mail: bounded store-derived wake policy"
+
+[[allow]]
+command = "worker-show"
+path = "$.briefPath"
+kind = "extra"
+difference = "Briefs that survive compaction: the file holding the worker's brief"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].briefPath"
+kind = "extra"
+difference = "Briefs that survive compaction: the file holding the worker's brief"
+
+[[allow]]
+command = "worker-show"
+path = "$.costUsd"
+kind = "extra"
+difference = "Cost: the agent's reported cost, null when none"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].costUsd"
+kind = "extra"
+difference = "Cost: the agent's reported cost, null when none"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.terminationTarget"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].terminationReason"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].terminationTarget"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].termination_reason"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].termination_target"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.termination_target"
+kind = "extra"
+difference = "Worker exit report: recorded closure reason and target"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].attention"
+kind = "extra"
+difference = "Failed dependency: attention category and next action"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].nextAction"
+kind = "extra"
+difference = "Failed dependency: attention category and next action"
+
+[[allow]]
+command = "gate-create"
+path = "$.gate.audience"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-create"
+path = "$.gate.evidence"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-create"
+path = "$.gate.recommendation"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.gate.audience"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.gate.evidence"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.gate.recommendation"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-list"
+path = "$.gates[].audience"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-list"
+path = "$.gates[].evidence"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-list"
+path = "$.gates[].recommendation"
+kind = "extra"
+difference = "Stuck worker: user gates carry evidence and a recommended default"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.message.**"
+kind = "extra"
+difference = "Stuck worker: resolving a user gate notifies the Run mailbox"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.kind"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "send"
+path = "$.warnings"
+kind = "extra"
+difference = "Worker exit report: unknown --reason-target is accepted with a warning"
+
+# Wave 1 integration (Opus): T2 and T3 commands. Each entry is a section 14
+# row or the documented pod shape; any other difference was fixed in pod.
+
+[[allow]]
+command = "run-current"
+path = "$.source"
+kind = "extra"
+difference = "Documented pod shape: run-current names the binding source (commands.md)"
+
+[[allow]]
+command = "run-create"
+path = "$.run.legacy"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "run-create"
+path = "$.run.coordinator_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "run-create"
+path = "$.run.depth"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-create"
+path = "$.run.home_cwd"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].legacy"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].activeWorkers"
+kind = "extra"
+difference = "Documented pod shape: run-list rows carry task and worker counts (spec 6, commands.md)"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].coordinator_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].depth"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].home_cwd"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-list"
+path = "$.runs[].tasks"
+kind = "extra"
+difference = "Documented pod shape: run-list rows carry task and worker counts (spec 6, commands.md)"
+
+[[allow]]
+command = "check"
+path = "$.messages[].delivery_contract"
+kind = "missing"
+difference = "Worker mailbox: worker check marks read; no per-message delivery contract"
+
+[[allow]]
+command = "check"
+path = "$.messages[].to_handle"
+kind = "missing"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "check"
+path = "$.messages[].evidence"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "check"
+path = "$.messages[].mailbox"
+kind = "extra"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "check"
+path = "$.messages[].read"
+kind = "extra"
+difference = "Documented pod shape: read is a boolean (commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.messages[].recommendation"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "check"
+path = "$.messages[].rejected_reason"
+kind = "extra"
+difference = "Worker exit report: a refused lifecycle message is stored with rejected_reason (spec 8.1, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.messages[].sender_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "check"
+path = "$.messages[].sequence"
+kind = "extra"
+difference = "Documented pod shape: message rows carry their mailbox sequence (commands-messages.md)"
+
+# T8 review: check --wait shares the coordinator check receipt, a Delivery
+# object (commands-messages.md), where Orca flattens runId and deliveryId.
+
+[[allow]]
+command = "check"
+path = "$.delivery"
+kind = "extra"
+difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.runId"
+kind = "missing"
+difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.deliveryId"
+kind = "missing"
+difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.acknowledged"
+kind = "missing"
+difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.replayed"
+kind = "missing"
+difference = "Documented pod shape: the coordinator check receipt is the Delivery row, messages, count, timedOut (spec 5, commands-messages.md)"
+
+[[allow]]
+command = "check"
+path = "$.cancelled"
+kind = "missing"
+difference = "Runtime: no daemon; a wait is one pod process with no connection to cancel or lose (spec 3.2)"
+
+[[allow]]
+command = "check"
+path = "$.connectionLost"
+kind = "missing"
+difference = "Runtime: no daemon; a wait is one pod process with no connection to cancel or lose (spec 3.2)"
+
+[[allow]]
+command = "request-show"
+path = "$.receipt.**"
+difference = "The stored receipt is the original command's own receipt (here check); its shape is compared by that command's samples (T8)"
+
+[[allow]]
+command = "gate-create"
+path = "$.gate.options"
+kind = "type"
+difference = "Documented pod shape: gate options are a JSON array (commands.md)"
+
+[[allow]]
+command = "gate-create"
+path = "$.task"
+kind = "extra"
+difference = "Documented pod shape: a gate receipt carries the Task's resulting status (state machine T12/T13, commands.md)"
+
+[[allow]]
+command = "run-show"
+path = "$.run.legacy"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "run-show"
+path = "$.run.coordinator_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "run-show"
+path = "$.run.depth"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-show"
+path = "$.run.home_cwd"
+kind = "extra"
+difference = "Documented pod shape: Run rows carry home_cwd and depth (spec 5, commands.md)"
+
+[[allow]]
+command = "run-show"
+path = "$.tasks"
+kind = "extra"
+difference = "Documented pod shape: run-show adds task and worker counts (spec 6, commands.md)"
+
+[[allow]]
+command = "run-show"
+path = "$.workers"
+kind = "extra"
+difference = "Documented pod shape: run-show adds task and worker counts (spec 6, commands.md)"
+
+[[allow]]
+command = "send"
+path = "$.message.delivery_contract"
+kind = "missing"
+difference = "Worker mailbox: worker check marks read; no per-message delivery contract"
+
+[[allow]]
+command = "send"
+path = "$.message.pointer_enter_pending"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "send"
+path = "$.message.pointer_process_incarnation"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "send"
+path = "$.message.pointer_pty_id"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "send"
+path = "$.message.read"
+kind = "type"
+difference = "Documented pod shape: read is a boolean (commands-messages.md)"
+
+[[allow]]
+command = "send"
+path = "$.message.sender_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "send"
+path = "$.message.to_handle"
+kind = "missing"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "send"
+path = "$.message.evidence"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "send"
+path = "$.message.mailbox"
+kind = "extra"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "send"
+path = "$.message.recommendation"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "send"
+path = "$.message.rejected_reason"
+kind = "extra"
+difference = "Worker exit report: a refused lifecycle message is stored with rejected_reason (spec 8.1, commands-messages.md)"
+
+[[allow]]
+command = "send"
+path = "$.message.sender_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "reply"
+path = "$.message.delivery_contract"
+kind = "missing"
+difference = "Worker mailbox: worker check marks read; no per-message delivery contract"
+
+[[allow]]
+command = "reply"
+path = "$.message.payload"
+kind = "type"
+difference = "Documented pod shape: payload is a JSON object, not an encoded string (commands-messages.md)"
+
+[[allow]]
+command = "reply"
+path = "$.message.pointer_enter_pending"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "reply"
+path = "$.message.pointer_process_incarnation"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "reply"
+path = "$.message.pointer_pty_id"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "reply"
+path = "$.message.read"
+kind = "type"
+difference = "Documented pod shape: read is a boolean (commands-messages.md)"
+
+[[allow]]
+command = "reply"
+path = "$.message.sender_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "reply"
+path = "$.message.to_handle"
+kind = "missing"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "reply"
+path = "$.message.evidence"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "reply"
+path = "$.message.mailbox"
+kind = "extra"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "reply"
+path = "$.message.recommendation"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "reply"
+path = "$.message.rejected_reason"
+kind = "extra"
+difference = "Worker exit report: a refused lifecycle message is stored with rejected_reason (spec 8.1, commands-messages.md)"
+
+[[allow]]
+command = "reply"
+path = "$.message.sender_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "reply"
+path = "$.question"
+kind = "extra"
+difference = "Documented pod shape: reply returns the answered question row (commands-messages.md)"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.gate.options"
+kind = "type"
+difference = "Documented pod shape: gate options are a JSON array (commands.md)"
+
+[[allow]]
+command = "gate-resolve"
+path = "$.task"
+kind = "extra"
+difference = "Documented pod shape: a gate receipt carries the Task's resulting status (state machine T12/T13, commands.md)"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].delivery_contract"
+kind = "missing"
+difference = "Worker mailbox: worker check marks read; no per-message delivery contract"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].pointer_enter_pending"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].pointer_process_incarnation"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].pointer_pty_id"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].read"
+kind = "type"
+difference = "Documented pod shape: read is a boolean (commands-messages.md)"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].sender_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].to_handle"
+kind = "missing"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].evidence"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].mailbox"
+kind = "extra"
+difference = "Documented pod shape: a message names its mailbox (spec 5 column mailbox), the value Orca calls to_handle"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].recommendation"
+kind = "extra"
+difference = "Stuck worker: escalations carry evidence and a recommendation"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].rejected_reason"
+kind = "extra"
+difference = "Worker exit report: a refused lifecycle message is stored with rejected_reason (spec 8.1, commands-messages.md)"
+
+[[allow]]
+command = "inbox"
+path = "$.messages[].sender_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "inbox"
+path = "$.mailbox"
+kind = "extra"
+difference = "Documented pod shape: inbox names the mailbox it read (commands-messages.md)"
+
+[[allow]]
+command = "task-create"
+path = "$.task.created_by_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-create"
+path = "$.task.created_by_process_incarnation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-create"
+path = "$.task.created_by_run_generation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-create"
+path = "$.task.created_by_terminal_handle"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "task-create"
+path = "$.task.deps"
+kind = "type"
+difference = "Documented pod shape: deps is a JSON array of Task IDs (commands.md)"
+
+[[allow]]
+command = "task-create"
+path = "$.task.task_title"
+kind = "missing"
+difference = "Documented pod shape: the Task column is title (spec 5, commands.md)"
+
+[[allow]]
+command = "task-create"
+path = "$.task.created_by_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "task-create"
+path = "$.task.title"
+kind = "extra"
+difference = "Documented pod shape: the Task column is title (spec 5, commands.md)"
+
+[[allow]]
+command = "task-list"
+path = "$.legacyReadOnly"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].created_by_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].created_by_process_incarnation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].created_by_run_generation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].created_by_terminal_handle"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].deps"
+kind = "type"
+difference = "Documented pod shape: deps is a JSON array of Task IDs (commands.md)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].task_title"
+kind = "missing"
+difference = "Documented pod shape: the Task column is title (spec 5, commands.md)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].created_by_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation; the column is the terminal ID (spec 5)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].title"
+kind = "extra"
+difference = "Documented pod shape: the Task column is title (spec 5, commands.md)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].spec"
+kind = "missing"
+difference = "Documented pod shape: task-list --brief drops the spec (spec 6, commands.md)"
+
+[[allow]]
+command = "task-list"
+path = "$.tasks[].spec_truncated"
+kind = "missing"
+difference = "Documented pod shape: task-list --brief drops the spec (spec 6, commands.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.rows"
+kind = "extra"
+difference = "Documented pod shape: worker-read returns rows {role, kind, text, tool, at}, not Orca's message blocks (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.transcript"
+kind = "missing"
+difference = "Documented pod shape: worker-read returns rows {role, kind, text, tool, at}, not Orca's message blocks (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.clipping"
+kind = "type"
+difference = "Documented pod shape: clipping is {rowsTrimmed} (commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.dispatchId"
+kind = "missing"
+difference = "Documented pod shape: the worker-read receipt is source, rows, cursor, contentComplete, clipping, warnings, fallbackReason (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.provider"
+kind = "missing"
+difference = "Documented pod shape: the worker-read receipt is source, rows, cursor, contentComplete, clipping, warnings, fallbackReason (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.sourceIdentity"
+kind = "missing"
+difference = "Documented pod shape: the worker-read receipt is source, rows, cursor, contentComplete, clipping, warnings, fallbackReason; the cursor carries the source identity (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.sourceExact"
+kind = "missing"
+difference = "Documented pod shape: the worker-read receipt is source, rows, cursor, contentComplete, clipping, warnings, fallbackReason (spec 11, commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.status"
+kind = "missing"
+difference = "Documented pod shape: worker state and projection are read with worker-show, not worker-read (commands-workers.md)"
+
+[[allow]]
+command = "worker-read"
+path = "$.projection"
+kind = "missing"
+difference = "Documented pod shape: worker state and projection are read with worker-show, not worker-read (commands-workers.md)"
+
+# Wave 2 integration: worker lifecycle (T7) receipts.
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.agent"
+kind = "missing"
+difference = "Presets: the effective launch names the herdr kind and the command that ran, not an agent alias"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.command"
+kind = "extra"
+difference = "Presets: the effective launch names the herdr kind and the command that ran, not an agent alias"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.args"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.requested.fast"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, fast, args"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.fast"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, fast, args"
+
+[[allow]]
+command = "check"
+path = "$.wokeOn"
+kind = "extra"
+difference = "Waiting: check --wait also ends when a worker newly requires action, and says why it returned"
+
+[[allow]]
+command = "check"
+path = "$.attention"
+kind = "extra"
+difference = "Waiting: check --wait also ends when a worker newly requires action, and lists those workers"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.requested.yolo"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, fast, yolo, args"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.effective.yolo"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, fast, yolo, args"
+
+[[allow]]
+command = "worker-start"
+path = "$.mode"
+kind = "missing"
+difference = "Runtime: a worker is a herdr agent pane; there is no Orca terminal or browser mode to choose"
+
+[[allow]]
+command = "worker-start"
+path = "$.prompt"
+kind = "missing"
+difference = "Typing into a pane: paste, confirm, Enter; Orca's typed-pointer bookkeeping does not exist"
+
+[[allow]]
+command = "worker-start"
+path = "$.turnStart"
+kind = "missing"
+difference = "Typing into a pane: pod records the paste outcome (preamble_input, receipt outcome), not an observed turn start"
+
+[[allow]]
+command = "worker-start"
+path = "$.dispatch"
+kind = "extra"
+difference = "Documented pod shape: the start receipt carries the Dispatch and worker rows (commands-workers.md)"
+
+[[allow]]
+command = "worker-start"
+path = "$.worker"
+kind = "extra"
+difference = "Documented pod shape: the start receipt carries the Dispatch and worker rows (commands-workers.md)"
+
+[[allow]]
+command = "worker-start"
+path = "$.handle"
+kind = "extra"
+difference = "Identity: a worker is the herdr agent named by its handle (spec 7.1)"
+
+[[allow]]
+command = "worker-start"
+path = "$.outcome"
+kind = "extra"
+difference = "Typing into a pane: dispatched_unobserved when the pasted preamble is not confirmed (spec 7.1)"
+
+[[allow]]
+command = "worker-start"
+path = "$.nextCommands"
+difference = "Documented pod shape: a start that is not ready lists its recovery commands, a failed one too (spec 7.1)"
+
+[[allow]]
+command = "worker-start"
+path = "$.timeoutMs"
+difference = "Documented pod shape: every start receipt carries its --timeout-ms bound, failed or not (commands-workers.md)"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.assigneePaneKey"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.processIncarnation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.capabilityRevokedAt"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.contractVersion"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.hostScope"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.creatorDispatchId"
+kind = "missing"
+difference = "Documented pod shape: nesting is recorded as the Dispatch depth (spec 5)"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.agentKind"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.launchRequested"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.launchEffective"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.assigneePid"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.assigneeTerminalId"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "worker-show"
+path = "$.dispatch.lastPhase"
+kind = "extra"
+difference = "Documented pod shape: the Dispatch keeps the last heartbeat phase (spec 5, commands-workers.md)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.agentTerminalHandle"
+kind = "missing"
+difference = "Identity: the worker handle is the Dispatch's assigneeHandle, its terminal the worker's terminalId"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.runtimeEpoch"
+kind = "missing"
+difference = "Runtime: no daemon, so no runtime epoch (spec 3.2)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.startOptions"
+kind = "missing"
+difference = "Presets: named presets resolve to a kind, model, effort, args; the launch is on the Dispatch"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.worktreeId"
+kind = "missing"
+difference = "Runtime: herdr names a worktree by its path (worktreePath)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.ownsPane"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.paneId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.placement"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.retainedReason"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.sessionId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.setupPaneId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.tabId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.terminalId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.terminalState"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.transcriptPath"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.transcriptProof"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.userOwned"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.userOwnedReason"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.workspaceId"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.worker.worktreePath"
+kind = "extra"
+difference = "Documented pod shape: the worker row of spec 5 (placement, pane ownership, terminal state, session proof)"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.id"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.dispatchId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.taskId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.runId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.role"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.parent"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.provider"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.workspace"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.stage"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.resource"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.host"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "worker-show"
+path = "$.projection.evidence"
+kind = "missing"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.terminal"
+kind = "missing"
+difference = "Runtime: herdr owns the pane; pod reads it with worker-read, not as a terminal record"
+
+[[allow]]
+command = "worker-show"
+path = "$.terminalResource"
+kind = "missing"
+difference = "Runtime: herdr owns the pane; pod reads it with worker-read, not as a terminal record"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.assignee_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.process_incarnation"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.creator_pane_key"
+kind = "missing"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.creator_handle"
+kind = "missing"
+difference = "Identity: the creator is the Run's coordinator terminal (runs.coordinator_terminal_id)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.assignee_orca_session_id"
+kind = "missing"
+difference = "Identity: no Orca session"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.creator_orca_session_id"
+kind = "missing"
+difference = "Identity: no Orca session"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.capability_hash"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.capability_revoked_at"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.launch_token_hash"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.contract_version"
+kind = "missing"
+difference = "Identity: no launch token or Dispatch capability; a worker is proven by terminal ID plus agent-process ancestry (spec 3.4)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.consumer_generation"
+kind = "missing"
+difference = "Identity: the coordinator binding generation lives on the Run (runs.consumer_generation)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.host_scope"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.creator_dispatch_id"
+kind = "missing"
+difference = "Documented pod shape: nesting is recorded as the Dispatch depth (spec 5)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.agent_kind"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.launch_requested"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.launch_effective"
+kind = "extra"
+difference = "Presets: named presets resolve to a kind, model, effort, args"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.assignee_pid"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.assignee_terminal_id"
+kind = "extra"
+difference = "Identity: terminal ID plus agent-process ancestry, no pane key or process incarnation"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatch.last_phase"
+kind = "extra"
+difference = "Documented pod shape: the Dispatch keeps the last heartbeat phase (spec 5, commands-workers.md)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.task_id"
+kind = "extra"
+difference = "Documented pod shape: dispatch-show also lists every Dispatch of the Task, oldest first, with the active one marked (commands-workers.md)"
+
+[[allow]]
+command = "dispatch-show"
+path = "$.dispatches"
+kind = "extra"
+difference = "Documented pod shape: dispatch-show also lists every Dispatch of the Task, oldest first, with the active one marked (commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.closedPanes"
+kind = "extra"
+difference = "Documented pod shape: release reports what it closed and what it left alone and why (spec 7.4, commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.closedTabs"
+kind = "extra"
+difference = "Documented pod shape: release reports what it closed and what it left alone and why (spec 7.4, commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.leftAlone"
+kind = "extra"
+difference = "Documented pod shape: release reports what it closed and what it left alone and why (spec 7.4, commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.outcome"
+kind = "extra"
+difference = "Documented pod shape: release reports what it closed and what it left alone and why (spec 7.4, commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.dispatch"
+kind = "extra"
+difference = "Documented pod shape: worker receipts carry the Dispatch and worker rows (commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.worker"
+kind = "extra"
+difference = "Documented pod shape: worker receipts carry the Dispatch and worker rows (commands-workers.md)"
+
+[[allow]]
+command = "worker-release"
+path = "$.archive.bytes"
+kind = "extra"
+difference = "Documented pod shape: the archive reports its size (commands-workers.md)"
+
+[[allow]]
+command = "worker-list"
+path = "$.counts.release_pending"
+kind = "extra"
+difference = "Documented pod shape: release_pending and release_unknown are terminal states (state machines R7 to R10)"
+
+[[allow]]
+command = "worker-list"
+path = "$.counts.release_unknown"
+kind = "extra"
+difference = "Documented pod shape: release_pending and release_unknown are terminal states (state machines R7 to R10)"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.id"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.dispatchId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.taskId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.runId"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.role"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.parent"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.provider"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.workspace"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.stage"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.resource"
+kind = "missing"
+difference = "Documented pod shape: the projection carries the spec 7.6 fields; identity, stage, and resource are in dispatch and worker"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.host"
+kind = "missing"
+difference = "Remote, legacy migration: absent in pod"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].projection.evidence"
+kind = "missing"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-list"
+path = "$.workers[].resource"
+kind = "missing"
+difference = "Documented pod shape: the row's terminalState is the release state; ownership is in worker-show's worker row (user_owned, owns_pane, retained_reason)"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.status"
+kind = "missing"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived; the verdict is observation.liveness"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.agentWait"
+kind = "missing"
+difference = "Liveness: three axes (activity, presence, needs_input); liveness is derived"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.exactWorker"
+kind = "missing"
+difference = "Identity: an observation is keyed by its Dispatch; there is no inexact worker match"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.attention"
+kind = "extra"
+difference = "Documented pod shape: the latest observations row (spec 5): its evidence time, reason, and attention"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.dispatchId"
+kind = "extra"
+difference = "Documented pod shape: the latest observations row (spec 5): its evidence time, reason, and attention"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.observedAt"
+kind = "extra"
+difference = "Documented pod shape: the latest observations row (spec 5): its evidence time, reason, and attention"
+
+[[allow]]
+command = "worker-show"
+path = "$.observation.reason"
+kind = "extra"
+difference = "Documented pod shape: the latest observations row (spec 5): its evidence time, reason, and attention"
+
+[[allow]]
+command = "worker-start"
+path = "$.launch.inject"
+kind = "extra"
+difference = "Typing into a pane: herdr's agent prompt first, paste as the fallback; the receipt names the path"

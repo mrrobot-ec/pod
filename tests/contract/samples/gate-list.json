@@ -1,0 +1,30 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    }
+  ],
+  "_args": [
+    "gate-list",
+    "--run",
+    "{run}"
+  ],
+  "id": "75bd6a12-ea0a-4ce5-92b6-5f1246851070",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "gates": [],
+    "count": 0
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

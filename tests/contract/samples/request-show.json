@@ -1,0 +1,68 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "check",
+        "--retry-request",
+        "req_000000000c01"
+      ]
+    }
+  ],
+  "_args": [
+    "request-show",
+    "--request",
+    "req_000000000c01"
+  ],
+  "id": "2c68142c-5525-454f-9156-b44ff33cf8dc",
+  "ok": true,
+  "result": {
+    "requestId": "33abc4a2-5ef6-4f2d-84db-23f57ca2c0c4",
+    "state": "completed",
+    "method": "orchestration.check",
+    "createdAt": "2026-10-12 22:22:36",
+    "updatedAt": "2026-10-12 22:24:27",
+    "receipt": {
+      "runId": "run_31fc2c96a4a1",
+      "deliveryId": "delivery_e0224cbc11dc",
+      "messages": [
+        {
+          "id": "msg_63a9f09973c8",
+          "run_id": "run_31fc2c96a4a1",
+          "from_handle": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+          "to_handle": "run:run_31fc2c96a4a1",
+          "subject": "T0 skeleton committed and green",
+          "body": "Implemented and committed T0 on main as 64345f2, including the public crate contracts, complete migration-1 schema, CLI envelope and command surface, basic doctor/status, fake herdr, test harness, and vendored protocol-22 schema. All 14 T0 tests pass, cargo build --all-targets and cargo clippy --all",
+          "type": "worker_done",
+          "priority": "normal",
+          "thread_id": null,
+          "payload": "{\"taskId\":\"task_e62309f8a66f\",\"dispatchId\":\"ctx_f4e457f62961\",\"outcome\":\"succeeded\",\"filesModified\":[\"Cargo.toml\",\"Cargo.lock\",\"src/lib.rs\",\"src/cli/mod.rs\",\"src/store/schema.rs\",\"src/herdr/mod.rs\",\"tests/t0.rs\",\"docs/reference/errors.md\"],\"reportPath\":\"docs/reviews/t0-notes.md\"}",
+          "created_at": "2026-10-12T22:24:27Z",
+          "delivered_at": null,
+          "delivery_contract": "current_delivery"
+        }
+      ],
+      "count": 1,
+      "replayed": false,
+      "acknowledged": "delivery_4d6f42e27b28",
+      "timedOut": false,
+      "cancelled": false,
+      "connectionLost": false,
+      "mutation": {
+        "requestId": "33abc4a2-5ef6-4f2d-84db-23f57ca2c0c4",
+        "replayed": false
+      }
+    },
+    "interpretation": "Request 33abc4a2-5ef6-4f2d-84db-23f57ca2c0c4 already took effect (orchestration.check). Replaying it with --retry-request 33abc4a2-5ef6-4f2d-84db-23f57ca2c0c4 returns the recorded outcome and starts nothing new."
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

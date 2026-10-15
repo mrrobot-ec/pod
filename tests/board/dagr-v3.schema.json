@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Derived from CONTRACT.md, the Schema v3 field reference section, of herdr-dagr 0.3.1 (dagr 0.3.1, contract v3). It is narrower than dagr: it lists only the fields pod writes, with dagr's enums. The real proof is `dagr check --strict`, which tests/board_export.rs runs whenever a dagr binary is on PATH.",
+  "title": "herdr-dagr run contract v3, as pod writes it",
+  "type": "object",
+  "required": ["dagr", "run", "tasks", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "dagr": { "const": 3 },
+    "generated_at": { "type": "string" },
+    "run": {
+      "type": "object",
+      "required": ["id", "title", "started_at", "orchestrator"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^run_[0-9a-f]{12}$" },
+        "title": { "type": "string" },
+        "started_at": { "type": "string" },
+        "orchestrator": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": { "pane": { "type": "string", "minLength": 1 }, "agent": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title"],
+        "additionalProperties": false,
+        "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+      }
+    },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } }
+  },
+  "$defs": {
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "kind", "state", "deps", "attempts"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "kind": { "enum": ["impl", "question"] },
+        "state": { "enum": ["queued", "working", "review", "blocked", "done", "failed", "rejected", "canceled", "settled_unverified"] },
+        "deps": { "type": "array", "items": { "type": "string" } },
+        "project": { "type": "string" },
+        "owner": { "type": "string" },
+        "unblock": { "type": "string" },
+        "criteria": { "type": "string" },
+        "note": { "type": "string" },
+        "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "const": "blocked" } } }, "then": { "required": ["unblock"] } }
+      ]
+    },
+    "attempt": {
+      "type": "object",
+      "required": ["id", "n", "cause", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "n": { "type": "integer", "minimum": 1 },
+        "cause": {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["initial", "sent_back", "gate_failed", "followup", "superseded"] },
+            "ref": { "type": "string" }
+          }
+        },
+        "actor": { "type": "string" },
+        "model": { "type": "string" },
+        "locator": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": { "pane": { "type": "string" }, "agent": { "type": "string" } }
+        },
+        "state": { "enum": ["queued", "working", "done", "failed", "rejected", "settled_unverified", "lost"] },
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "outcome": {
+          "type": "object",
+          "required": ["result", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "result": { "enum": ["done", "failed", "rejected", "settled_unverified"] },
+            "evidence": { "enum": ["verified", "reported", "heuristic", "asserted"] },
+            "reason": { "type": "string" },
+            "receipt": { "type": "string" }
+          }
+        },
+        "progress": {
+          "type": "object",
+          "required": ["note"],
+          "additionalProperties": false,
+          "properties": { "note": { "type": "string" } }
+        },
+        "liveness": {
+          "type": "object",
+          "required": ["prompt_acknowledged", "queued_input"],
+          "additionalProperties": false,
+          "properties": {
+            "prompt_acknowledged": { "type": "boolean" },
+            "last_output_at": { "type": "string" },
+            "queued_input": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "enum": ["done", "failed", "rejected", "settled_unverified"] } } }, "then": { "required": ["outcome", "ended_at"] } },
+        { "if": { "properties": { "state": { "const": "working" } } }, "then": { "required": ["liveness"] } }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "required": ["at", "type", "actor", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "at": { "type": "string" },
+        "type": { "enum": ["attempt_started", "attempt_settled", "promoted", "note"] },
+        "task": { "type": "string" },
+        "attempt": { "type": "string" },
+        "actor": { "type": "string" },
+        "detail": { "type": "string" }
+      }
+    }
+  }
+}

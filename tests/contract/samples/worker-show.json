@@ -1,0 +1,153 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "worker-start",
+        "--spec",
+        "x",
+        "--agent",
+        "claude"
+      ],
+      "bind": {
+        "dispatch": "/dispatch/id"
+      }
+    }
+  ],
+  "_args": [
+    "worker-show",
+    "--dispatch",
+    "{dispatch}"
+  ],
+  "id": "95beb865-5b24-4b61-a963-c79d272397c9",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_f4e457f62961",
+      "runId": "run_31fc2c96a4a1",
+      "taskId": "task_e62309f8a66f",
+      "task_id": "task_e62309f8a66f",
+      "contractVersion": 1,
+      "assigneeHandle": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+      "assigneePaneKey": "b43473aa-2e7b-4c9f-804c-b3c31af8f847:043aad0d-58cd-46e3-9843-d6f581e83cfb",
+      "processIncarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod@@d1375d3b:98a7a91d-fa33-419c-b813-3065ef5aff32",
+      "capabilityRevokedAt": "2026-10-12T22:24:27.763Z",
+      "retryOfDispatchId": null,
+      "creatorDispatchId": null,
+      "hostScope": null,
+      "status": "completed",
+      "failureCount": 0,
+      "lastFailure": null,
+      "terminationReason": null,
+      "depth": 1,
+      "dispatchedAt": "2026-10-12 22:14:53",
+      "completedAt": "2026-10-12T22:24:27.763Z",
+      "createdAt": "2026-10-12 22:14:53",
+      "lastHeartbeatAt": null
+    },
+    "worker": {
+      "dispatchId": "ctx_f4e457f62961",
+      "runtimeEpoch": null,
+      "state": "unsupervised",
+      "stage": "injected",
+      "worktreeId": null,
+      "agentTerminalHandle": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+      "setupState": "not_applicable",
+      "effects": [],
+      "residualResources": [],
+      "startOptions": {},
+      "lastError": null,
+      "createdAt": "2026-10-12 22:14:53",
+      "updatedAt": "2026-10-12T22:24:27.763Z"
+    },
+    "projection": {
+      "id": "ctx_f4e457f62961",
+      "dispatchId": "ctx_f4e457f62961",
+      "taskId": "task_e62309f8a66f",
+      "runId": "run_31fc2c96a4a1",
+      "role": "worker",
+      "parent": null,
+      "provider": {
+        "id": "codex",
+        "model": "gpt-5.6-sol"
+      },
+      "host": {
+        "kind": "local",
+        "id": "local"
+      },
+      "workspace": {
+        "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod",
+        "kind": "folder_or_worktree"
+      },
+      "stage": {
+        "worker": "unsupervised",
+        "dispatch": "completed",
+        "detail": null,
+        "activity": "unknown"
+      },
+      "outcome": "succeeded",
+      "liveness": {
+        "verdict": "unverifiable",
+        "reason": "stale_status",
+        "observedAt": 1791843869805
+      },
+      "evidence": {
+        "durable": true,
+        "liveStatus": "stale",
+        "lastObservedAt": 1791843869805
+      },
+      "resource": {
+        "state": "absent",
+        "reason": "unsupervised"
+      },
+      "nextAction": {
+        "kind": "none",
+        "argv": []
+      },
+      "attention": {
+        "categories": [
+          "stale",
+          "root_completion"
+        ],
+        "requiresAction": false
+      }
+    },
+    "terminal": {
+      "handle": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+      "ptyId": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod@@d1375d3b",
+      "incarnationId": "98a7a91d-fa33-419c-b813-3065ef5aff32",
+      "orphaned": false,
+      "worktreeId": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod",
+      "worktreePath": "/Users/me/code/pod",
+      "branch": "refs/heads/main",
+      "tabId": "b43473aa-2e7b-4c9f-804c-b3c31af8f847",
+      "leafId": "043aad0d-58cd-46e3-9843-d6f581e83cfb",
+      "title": "Report task outcome | pod",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1791843869824,
+      "preview": "\u2022 18:24\n\u203a Ask Codex to do anything\nGPT-5.6-Sol high \u00b7 ~/code/pod \u00b7 Report task outcome\n? for shortcuts                                                                                                                                                                 \u26a0 2 warnings \u00b7 f2 to view",
+      "executionHostId": "local",
+      "agentIdentity": "codex",
+      "paneRuntimeId": 1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": null
+    },
+    "terminalResource": null
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

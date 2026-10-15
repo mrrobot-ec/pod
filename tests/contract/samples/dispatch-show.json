@@ -1,0 +1,65 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "worker-start",
+        "--spec",
+        "x",
+        "--agent",
+        "claude"
+      ],
+      "bind": {
+        "task": "/dispatch/task_id"
+      }
+    }
+  ],
+  "_args": [
+    "dispatch-show",
+    "--task",
+    "{task}"
+  ],
+  "id": "34f14b4e-d7c7-4220-ab7e-0b2466c74fcc",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_f4e457f62961",
+      "task_id": "task_e62309f8a66f",
+      "assignee_handle": "term_e7d595c8-2746-4b72-80c2-5879b8a28549",
+      "status": "completed",
+      "failure_count": 0,
+      "last_failure": null,
+      "dispatched_at": "2026-10-12 22:14:53",
+      "completed_at": "2026-10-12T22:24:27.763Z",
+      "created_at": "2026-10-12 22:14:53",
+      "last_heartbeat_at": null,
+      "assignee_pane_key": "b43473aa-2e7b-4c9f-804c-b3c31af8f847:043aad0d-58cd-46e3-9843-d6f581e83cfb",
+      "run_id": "run_31fc2c96a4a1",
+      "capability_hash": "e6d77424fcc2bee9b1603dd33f1ffa873c07e700187edcd9295c05c7db0f4101",
+      "process_incarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod@@d1375d3b:98a7a91d-fa33-419c-b813-3065ef5aff32",
+      "capability_revoked_at": "2026-10-12T22:24:27.763Z",
+      "contract_version": 1,
+      "launch_token_hash": "REDACTED",
+      "termination_reason": null,
+      "depth": 1,
+      "retry_of_dispatch_id": null,
+      "creator_dispatch_id": null,
+      "host_scope": null,
+      "consumer_generation": 1,
+      "creator_handle": "term_012ef020-714e-49c3-a64b-9f229af38790",
+      "creator_pane_key": "a542f784-4bfa-46fa-b7b5-680ba4ddd8f3:a54c1144-7957-4644-8594-31f866d68c7e",
+      "assignee_orca_session_id": null,
+      "creator_orca_session_id": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

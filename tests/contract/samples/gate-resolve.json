@@ -1,0 +1,67 @@
+{
+  "_provenance": "hand-authored",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "task-create",
+        "--spec",
+        "Implement limiter",
+        "--task-title",
+        "Limiter"
+      ],
+      "bind": {
+        "task": "/task/id"
+      }
+    },
+    {
+      "args": [
+        "gate-create",
+        "--task",
+        "{task}",
+        "--question",
+        "Ship v1 schema or v2?",
+        "--options",
+        "[\"v1\",\"v2\"]"
+      ],
+      "bind": {
+        "gate": "/gate/id"
+      }
+    }
+  ],
+  "_args": [
+    "gate-resolve",
+    "--id",
+    "{gate}",
+    "--resolution",
+    "v2"
+  ],
+  "id": "00000000-0000-4000-8000-000000000000",
+  "ok": true,
+  "result": {
+    "gate": {
+      "id": "gate_0123456789ab",
+      "run_id": "run_31fc2c96a4a1",
+      "task_id": "task_503e508f9e42",
+      "question": "Ship v1 schema or v2?",
+      "options": "[\"v1\",\"v2\"]",
+      "status": "resolved",
+      "resolution": "v2",
+      "created_at": "2026-10-12 22:09:35",
+      "resolved_at": "2026-10-12 22:10:35"
+    },
+    "mutation": {
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

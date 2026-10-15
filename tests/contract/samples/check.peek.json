@@ -1,0 +1,57 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    }
+  ],
+  "_args": [
+    "check",
+    "--peek",
+    "--run",
+    "{run}"
+  ],
+  "id": "efd80bbe-8ae1-4aba-97f0-fdf09078daf7",
+  "ok": true,
+  "result": {
+    "messages": [
+      {
+        "id": "msg_46153b8b8072",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_4cec7bd6-e2f5-4f81-bc4b-5282e93d25c9",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "T12 packaging done",
+        "body": "Implemented pod skills get (src/skills.rs, env.rs), herdr-plugin.toml (not plugin.toml, per your approval; verified with herdr plugin link), scripts/install.sh, skill stubs, ci.yml and release.yml, plus tests/cli_skills.rs and tests/plugin_manifest.rs; all five listed tests exist and pass (link dry ",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_80e2518e2279\",\"dispatchId\":\"ctx_0a06bac7f837\",\"outcome\":\"succeeded\",\"filesModified\":[\"herdr-plugin.toml\",\"scripts/install.sh\",\"src/skills.rs\",\"src/cli/commands/env.rs\",\"skills/coordinator/SKILL.md\",\"skills/worker/SKILL.md\",\".github/workflows/ci.yml\",\".github/workflows/release.yml\",\"t",
+        "created_at": "2026-10-12T23:23:25Z",
+        "delivered_at": null,
+        "delivery_contract": "current_delivery"
+      }
+    ],
+    "count": 1
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

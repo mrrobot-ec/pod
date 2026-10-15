@@ -1,0 +1,6 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nReply with exactly: OK\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Oct 12, 2026, 7:30 PM (UTC-4)</timestamp>\n<user_query>\nNow say done.\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Checking first."},{"type":"tool_use","name":"Read","input":{"path":"/tmp/example.txt"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"done"}]}}
+{"type":"turn_ended","status":"success"}

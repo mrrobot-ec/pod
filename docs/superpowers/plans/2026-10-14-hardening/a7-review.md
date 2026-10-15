@@ -1,0 +1,21 @@
+# Phase A review (Opus)
+
+You are the reviewer for Phase A of `docs/superpowers/specs/2026-10-14-hardening-design.md`, lanes A1 to A6, already merged on this branch. Read the spec, `00-index.md` (Global Constraints and Review Focus), and the lane plans `a1` to `a6`, then review the code the way a senior engineer who distrusts summaries would.
+
+1. **Spec conformance, rule by rule.** For every numbered rule in spec sections A1 to A6, find the test that pins it and the code that implements it. Where a rule has no test, add one on `FakeHerdr`; where code deviates from the spec, fix the code unless the lane's plan recorded a deliberate deviation (A1's plan records one: `agent_prompt_stalled` means Enter was pressed, so it maps to `dispatched_unobserved`, never a second paste; keep that and update the spec text to say so).
+2. **Review Focus items 1 to 4** in `00-index.md`: verify each has its test and the behaviour is right.
+3. **Concurrency.** Two processes (the waiting coordinator's tick and the tab bar tick) run the ladder: prove with a test that the per-mailbox lock and the 60-second rule prevent a double nudge, and that `BarTick` never sleeps.
+4. **Budget.** Non-waiting commands stay under 50 ms: `prompt_or_paste` reads one screen; the tick's work happens only inside waits and the bar command. Check `worker-list` and `send` do no pane reads they did not do before.
+5. **Live evidence.** Read `docs/reviews/live/2026-10-14.md`. Rerun `sh scripts/live.sh` yourself once; if a case fails, fix the cause or record it as an open item with the receipt.
+6. **Docs.** Every receipt field, flag, error code, and category added in Phase A is documented; `docs_sync`, `cli_skills`, `spec_rules` pass; no doc over 400 lines; no em-dashes.
+7. Run `cargo test --release`, clippy with warnings denied, `cargo fmt --check`, and `shellcheck scripts/*.sh`. Fix what fails. Commit in small conventional pieces on this branch.
+
+Report with `worker_done`: what you fixed, what you could not verify, and a go or no-go for Phase B.
+
+## Found while running Phase A: the clock burns the ladder on a busy worker
+
+Seen live 2026-10-14: the waiting coordinator ticked every 60 seconds against a worker (A6) that was `working` for 20 minutes; every tick recorded a `skipped` attempt ("recipient activity is not idle_at_prompt"), so after five ticks the mailbox was `unreachable` while the worker was fine. Spec 8.2 counts skipped attempts so that a stuck recipient is noticed, but a tick that finds the recipient busy is not evidence of anything. Fix in lane A2's code (`wake::on_trigger` for `WaitTick` and `BarTick`): when the recipient is present and `working`, return without recording an attempt; record attempts from ticks only when the recipient was idle at a prompt (or absent, or stale). Pin it with a test: a worker scripted `working` for six ticks keeps `exhausted: false` and zero new attempts; the same worker idle gets one attempt per minute as before. Update spec 8.2's wording ("a tick records an attempt only against an idle recipient") and `docs/reference/commands-messages.md`.
+
+## Open findings from the live suite (lane A6, `docs/reviews/live/2026-10-14.md`)
+
+Resolve each: (1) Codex stops at a shared-daemon dialog when the Codex desktop app runs its background server; the harness launches with `--no-daemon`. Decide whether pod's built-in codex launch table adds `--no-daemon` for every pod worker (read Codex's help for side effects) or documents the dialog as a trust-style prerequisite, and implement the decision with a test. (2) `scripts/e2e.sh` and `tests/e2e/session.rs` require herdr exactly 0.9.3 while this machine runs 0.9.4; make both accept 0.9.3 or newer and rerun `POD_E2E=1 scripts/e2e.sh`. (3) `interruption` is seen at the next quiet tick, not at the keystroke, because a commit-time attempt cannot prove the 3-second quiet window; confirm the docs say so. (4) A newer pod migrating the shared store broke every older build on the machine; `pod doctor` should say which schema version the store and the binary have, and the docs should warn that worktree builds must not run against the live session. Rerun `sh scripts/live.sh` on the merged main: case 1 must now pass with `launch.inject == "prompt"` for both kinds.

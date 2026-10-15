@@ -1,0 +1,32 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    }
+  ],
+  "_args": [
+    "task-list",
+    "--run",
+    "{run}",
+    "--ready"
+  ],
+  "id": "89c9446e-9e73-40f1-b917-2ea281e002b1",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "legacyReadOnly": false,
+    "tasks": [],
+    "count": 0
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

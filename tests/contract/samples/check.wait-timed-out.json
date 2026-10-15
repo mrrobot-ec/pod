@@ -1,0 +1,37 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    }
+  ],
+  "_args": [
+    "check",
+    "--wait",
+    "--timeout-ms",
+    "1"
+  ],
+  "id": "a40a966c-e74d-4f0d-8966-c0320b06cd84",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "deliveryId": null,
+    "messages": [],
+    "count": 0,
+    "acknowledged": null,
+    "timedOut": true,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "f5768863-60e0-4142-b293-9e6ca328496d",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

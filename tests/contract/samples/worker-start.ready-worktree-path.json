@@ -1,0 +1,92 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    }
+  ],
+  "_args": [
+    "worker-start",
+    "--spec",
+    "x",
+    "--agent",
+    "claude",
+    "--worktree",
+    "path:/Users/me/repo"
+  ],
+  "id": "ffde1828-7517-4b12-af38-a80f05162122",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "taskId": "task_11a6bac2fc13",
+    "dispatchId": "ctx_36b64a193564",
+    "state": "ready",
+    "stage": "input_accepted",
+    "turnStart": "observed",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": "claude",
+        "model": "claude-sonnet-5-5",
+        "effort": "medium"
+      },
+      "effective": {
+        "agent": "claude",
+        "model": "claude-sonnet-5-5",
+        "effort": "medium"
+      }
+    },
+    "mode": {
+      "mode": "terminal",
+      "preferred": "terminal",
+      "reason": "user_default",
+      "detail": "Started a terminal agent worker, the default for new agent tabs in your settings."
+    },
+    "timeoutMs": 300000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t5-transcript"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      }
+    ],
+    "prompt": {
+      "requestId": "0a65fe45-fecf-4eeb-a948-b33ae206c38f",
+      "stages": [
+        "input_accepted",
+        "turn_started"
+      ],
+      "provider": "claude",
+      "observation": "supported",
+      "processIncarnation": "01ed39fa-09e8-41de-b8ab-4bc1d7cd83f7",
+      "generation": 39,
+      "baselineWorkingSequence": 0,
+      "baselineExplicitWorkingStartedAt": null,
+      "baselinePermissionSequence": 1
+    },
+    "residualResources": [],
+    "mutation": {
+      "requestId": "0a65fe45-fecf-4eeb-a948-b33ae206c38f",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

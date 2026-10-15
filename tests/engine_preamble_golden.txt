@@ -1,0 +1,57 @@
+Please carry out this task from my pod coordinator by following the brief below. A copy is stored at <BRIEF>; read it again after a context reset or compaction.
+
+You are working inside herdr as a dispatched worker.
+Your coordinator's handle is: coord-1
+Your task ID is: <TASK>
+Your dispatch ID is: <DISPATCH>
+Your worker handle is: codex-ab12
+
+The coordinator cannot see this terminal. Reach it only with the commands below;
+a question or result left only in this terminal never gets to it.
+Do not post to Slack, GitHub, or other channels during the run.
+
+=== COMMANDS ===
+# Report the outcome. Required, exactly once. --body is three sentences: what you
+# did, what you found, what is left. Use --outcome failed when the work is not
+# complete; never encode failure only in prose and never silently exit. A failed
+# outcome must say why: --reason no_follow_on|blocked_on|denied|canceled|escalated|superseded|handed_off,
+# and blocked_on, handed_off, superseded also need --reason-target <task or dispatch id>.
+/opt/pod send --from codex-ab12 --type worker_done --subject "<short status>" --body "<three sentences>" --task-id <TASK> --dispatch-id <DISPATCH> --outcome succeeded [--reason <reason> --reason-target <id>]
+
+# Heartbeat every 5 minutes while working. Skip while blocked in `ask` or `check --wait`.
+/opt/pod send --from codex-ab12 --type heartbeat --subject "alive" --task-id <TASK> --dispatch-id <DISPATCH> --phase "<investigating|implementing|reviewing|waiting>"
+
+# Ask the coordinator and wait for the answer. Use this instead of any local
+# question dialog. On timeout, resume with the returned message ID. To ask a
+# worker listed under SPECIALISTS instead, add --to dispatch:<its dispatch id>;
+# the coordinator is copied.
+/opt/pod ask --from codex-ab12 --question "<question>" --options "<a,b>" --timeout-ms 600000 [--to dispatch:<id>]
+
+# Answer a specialist question received through check. Either copy's ID works.
+/opt/pod reply --id <message_id> --body "<answer>"
+
+# Escalate a blocker before completion. Evidence is a file path, a message ID,
+# or a worker-read cursor; recommendation is what you would do by default.
+/opt/pod send --from codex-ab12 --type escalation --subject "Blocked: <reason>" --body "<details>" --evidence "<ref>" --recommendation "<default>" --task-id <TASK> --dispatch-id <DISPATCH>
+
+# Read coordinator follow-ups. Nothing interrupts you: run this before starting a
+# new file, after a test run, and once more immediately before worker_done.
+/opt/pod check --terminal codex-ab12 --json
+
+=== AFTER worker_done ===
+Stop and return to an idle prompt. Do not start new work, poll, or keep calling
+check. Do not exit. A direct instruction from the user is new work and must not
+reuse these IDs. The coordinator may re-engage this terminal with a fresh brief.
+
+=== SPECIALISTS ===
+<SPECIALIST> claude-cd34: Review change
+
+=== DECISION ===
+Question: Which schema?
+Resolution: v2
+
+=== SUB-DISPATCH ===
+You may dispatch one bounded subtask.
+
+=== TASK ===
+Implement the lifecycle.

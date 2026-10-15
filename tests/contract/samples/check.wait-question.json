@@ -1,0 +1,68 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    }
+  ],
+  "_args": [
+    "check",
+    "--wait",
+    "--timeout-ms",
+    "1000"
+  ],
+  "id": "98b4108d-fd03-46ef-835a-877a96a4e605",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "deliveryId": "delivery_1d078968aa79",
+    "messages": [
+      {
+        "id": "msg_b935ffb1d07a",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "dispatch:ctx_f4e457f62961",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "Question",
+        "body": "T0's locked file structure omits src/lib.rs, but tests/support/mod.rs must construct public Engine/Store/FakeHerdr and later integration tests need to import the crate. May I add src/lib.rs as the conventional module root, or must I keep a binary-only crate and wire tests another way?",
+        "type": "question",
+        "priority": "normal",
+        "thread_id": "msg_b935ffb1d07a",
+        "payload": "{\"taskId\":\"task_e62309f8a66f\",\"dispatchId\":\"ctx_f4e457f62961\",\"question\":\"T0's locked file structure omits src/lib.rs, but tests/support/mod.rs must construct public Engine/Store/FakeHerdr and later integration tests need to import the crate. May I add src/lib.rs as the conventional module root, or ",
+        "created_at": "2026-10-12T22:15:50Z",
+        "delivered_at": null,
+        "delivery_contract": "current_delivery"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "d951777b-c0b2-4444-8816-ffc821880d14",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

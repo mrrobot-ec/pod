@@ -1,0 +1,83 @@
+{
+  "_provenance": "hand-authored",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ]
+    },
+    {
+      "args": [
+        "task-create",
+        "--spec",
+        "Implement limiter",
+        "--task-title",
+        "Limiter"
+      ],
+      "bind": {
+        "task": "/task/id"
+      }
+    },
+    {
+      "seed_worker": {
+        "task": "{task}",
+        "terminal": "term_worker",
+        "handle": "sol-a1b2"
+      }
+    },
+    {
+      "as": "term_worker",
+      "args": [
+        "ask",
+        "--question",
+        "Which file should I add?",
+        "--timeout-ms",
+        "1"
+      ],
+      "bind": {
+        "message": "/question/message_id"
+      }
+    }
+  ],
+  "_args": [
+    "reply",
+    "--id",
+    "{message}",
+    "--body",
+    "add src/lib.rs"
+  ],
+  "id": "00000000-0000-4000-8000-000000000000",
+  "ok": true,
+  "result": {
+    "message": {
+      "id": "msg_46153b8b8072",
+      "run_id": "run_31fc2c96a4a1",
+      "from_handle": "term_4cec7bd6-e2f5-4f81-bc4b-5282e93d25c9",
+      "to_handle": "run:run_31fc2c96a4a1",
+      "subject": "T12 packaging done",
+      "body": "Implemented pod skills get (src/skills.rs, env.rs), herdr-plugin.toml (not plugin.toml, per your approval; verified with herdr plugin link), scripts/install.sh, skill stubs, ci.yml and release.yml, plus tests/cli_skills.rs and tests/plugin_manifest.rs; all five listed tests exist and pass (link dry ",
+      "type": "worker_done",
+      "priority": "normal",
+      "thread_id": null,
+      "payload": "{\"taskId\":\"task_80e2518e2279\",\"dispatchId\":\"ctx_0a06bac7f837\",\"outcome\":\"succeeded\",\"filesModified\":[\"herdr-plugin.toml\",\"scripts/install.sh\",\"src/skills.rs\",\"src/cli/commands/env.rs\",\"skills/coordinator/SKILL.md\",\"skills/worker/SKILL.md\",\".github/workflows/ci.yml\",\".github/workflows/release.yml\",\"t",
+      "read": 0,
+      "sequence": 21093,
+      "created_at": "2026-10-12T23:23:25Z",
+      "delivered_at": null,
+      "sender_pane_key": "14465ea5-70a6-4a8e-a271-46dc65096a12:ff83b901-2339-4af3-a22b-60fa1483121f",
+      "delivery_contract": "current_delivery",
+      "pointer_enter_pending": 0,
+      "pointer_pty_id": null,
+      "pointer_process_incarnation": null
+    },
+    "mutation": {
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

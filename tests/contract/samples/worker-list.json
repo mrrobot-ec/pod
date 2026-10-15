@@ -1,0 +1,222 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "worker-start",
+        "--spec",
+        "x",
+        "--agent",
+        "claude"
+      ]
+    },
+    {
+      "args": [
+        "worker-start",
+        "--spec",
+        "x",
+        "--agent",
+        "claude"
+      ]
+    }
+  ],
+  "_args": [
+    "worker-list",
+    "--run",
+    "{run}",
+    "--limit",
+    "2"
+  ],
+  "id": "cbea598e-46f9-40b8-940c-44b82e8e04ac",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_1dadf4f5866d",
+        "taskId": "task_51bef8474c4f",
+        "runId": "run_31fc2c96a4a1",
+        "workerState": "starting",
+        "dispatchStatus": "pending",
+        "agentTerminalHandle": "term_2f38c5df-530e-47c4-9862-444cebfcd026",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_b1f00d400a35",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_2f38c5df-530e-47c4-9862-444cebfcd026",
+          "worktreeId": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t6-board",
+          "endpointId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef",
+          "endpointIncarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t6-board@@16aa044d:f18ad65b-93e3-4c01-a29f-beb8071304f8",
+          "originDispatchId": "ctx_1dadf4f5866d",
+          "ownerDispatchId": "ctx_1dadf4f5866d",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_1dadf4f5866d",
+          "dispatchId": "ctx_1dadf4f5866d",
+          "taskId": "task_51bef8474c4f",
+          "runId": "run_31fc2c96a4a1",
+          "role": "worker",
+          "parent": null,
+          "provider": null,
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t6-board",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "starting",
+            "dispatch": "pending",
+            "detail": "terminal_readying",
+            "activity": "unknown"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "unverifiable",
+            "reason": "missing_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "unavailable",
+            "lastObservedAt": null
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [
+              "unverifiable"
+            ],
+            "requiresAction": true
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_f218a536f434",
+        "taskId": "task_c31350f30c30",
+        "runId": "run_31fc2c96a4a1",
+        "workerState": "ready",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_8cbffee5-c52e-4654-aa77-01f365f2f07a",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_9a307d17f285",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_8cbffee5-c52e-4654-aa77-01f365f2f07a",
+          "worktreeId": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t5-transcript",
+          "endpointId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef",
+          "endpointIncarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t5-transcript@@f04f06fd:75bc1e9d-0497-4f44-b033-53a2123aedbd",
+          "originDispatchId": "ctx_f218a536f434",
+          "ownerDispatchId": "ctx_f218a536f434",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_f218a536f434",
+          "dispatchId": "ctx_f218a536f434",
+          "taskId": "task_c31350f30c30",
+          "runId": "run_31fc2c96a4a1",
+          "role": "worker",
+          "parent": null,
+          "provider": {
+            "id": "claude",
+            "model": null
+          },
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod-worktrees/t5-transcript",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "working"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "live",
+            "observedAt": 1791847430437,
+            "source": "agent_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "fresh",
+            "lastObservedAt": 1791847430437
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [],
+            "requiresAction": false
+          }
+        }
+      }
+    ],
+    "counts": {
+      "active": 7,
+      "reclaimable": 1,
+      "retained": 4,
+      "released": 2
+    },
+    "page": {
+      "limit": 2,
+      "total": 14,
+      "hasMore": true,
+      "nextCursor": "eyJ2ZXJzaW9uIjoyLCJzbmFwc2hvdCI6eyJkYXRhYmFzZUlkIjozODI1fSwiYWZ0ZXIiOnsiY3JlYXRlZEF0IjoiMjAyNi0xMC0xMiAyMzoyMzo0NiIsImRpc3BhdGNoSWQiOiJjdHhfZjIxOGE1MzZmNDM0IiwiZGF0YWJhc2VJZCI6MzgyNH19"
+    },
+    "warnings": [
+      "Showing 2 of 14 Dispatches, newest first; more are on later pages. Follow page.nextCursor with --cursor."
+    ],
+    "scope": {
+      "run": "run_31fc2c96a4a1",
+      "source": "flag"
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

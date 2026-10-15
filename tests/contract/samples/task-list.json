@@ -1,0 +1,87 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "task-create",
+        "--spec",
+        "Implement limiter",
+        "--task-title",
+        "Limiter"
+      ],
+      "bind": {
+        "task": "/task/id"
+      }
+    },
+    {
+      "args": [
+        "task-create",
+        "--spec",
+        "Review limiter",
+        "--deps",
+        "[\"{task}\"]"
+      ]
+    }
+  ],
+  "_args": [
+    "task-list",
+    "--run",
+    "{run}"
+  ],
+  "id": "6bf684b4-f5cf-4459-b855-03af866da781",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "legacyReadOnly": false,
+    "tasks": [
+      {
+        "id": "task_503e508f9e42",
+        "parent_id": null,
+        "created_by_terminal_handle": "term_012ef020-714e-49c3-a64b-9f229af38790",
+        "task_title": "T0 skeleton, traits, schema, envelope",
+        "display_name": "T0 skeleton, traits, schema, envelope",
+        "spec": "# Task T0: pod crate skeleton, traits, schema, envelope\n\nTarget: the Rust crate for pod at /Users/me/code/pod (git repository, branch main, currently docs only). Work directly in this folder on branch main. No worktree.\n\nChange: deliver task T0 of docs/plans/2026-10-12-implementation-pla",
+        "status": "failed",
+        "deps": "[]",
+        "result": null,
+        "created_at": "2026-10-12 22:09:35",
+        "completed_at": "2026-10-12T22:14:35.634Z",
+        "run_id": "run_31fc2c96a4a1",
+        "created_by_pane_key": "a542f784-4bfa-46fa-b7b5-680ba4ddd8f3:a54c1144-7957-4644-8594-31f866d68c7e",
+        "created_by_process_incarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod@@06f5cc78:34d4de63-aece-4796-99d6-4b32691e772b",
+        "created_by_run_generation": 1
+      },
+      {
+        "id": "task_e62309f8a66f",
+        "parent_id": null,
+        "created_by_terminal_handle": "term_012ef020-714e-49c3-a64b-9f229af38790",
+        "task_title": "T0 skeleton, traits, schema, envelope",
+        "display_name": "T0 skeleton, traits, schema, envelope",
+        "spec": "# Task T0: pod crate skeleton, traits, schema, envelope\n\nTarget: the Rust crate for pod at /Users/me/code/pod (git repository, branch main, currently docs only). Work directly in this folder on branch main. No worktree.\n\nChange: deliver task T0 of docs/plans/2026-10-12-implementation-pla",
+        "status": "completed",
+        "deps": "[]",
+        "result": "{\"provenance\":\"worker_report\",\"outcome\":\"succeeded\",\"messageId\":\"msg_63a9f09973c8\",\"reportedBy\":\"term_e7d595c8-2746-4b72-80c2-5879b8a28549\",\"subject\":\"T0 skeleton committed and green\",\"body\":\"Implemented and committed T0 on main as 64345f2, including the public crate contracts, complete migration-1 ",
+        "created_at": "2026-10-12 22:14:49",
+        "completed_at": "2026-10-12T22:24:27.763Z",
+        "run_id": "run_31fc2c96a4a1",
+        "created_by_pane_key": "a542f784-4bfa-46fa-b7b5-680ba4ddd8f3:a54c1144-7957-4644-8594-31f866d68c7e",
+        "created_by_process_incarnation": "3770a069-ceed-4834-8eba-793a90c548ee::/Users/me/code/pod@@06f5cc78:34d4de63-aece-4796-99d6-4b32691e772b",
+        "created_by_run_generation": 1
+      }
+    ],
+    "count": 11
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

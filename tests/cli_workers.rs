@@ -1,0 +1,356 @@
+mod support;
+
+use serde_json::Value;
+
+use support::TestEnv;
+
+#[test]
+fn cli_worker_receipt_shapes_and_exit_zero_only_for_ready() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "workers", "--json"])
+        .assert()
+        .success();
+    let request = "req_00000000abcd";
+    let first = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "receipt work",
+            "--agent",
+            "codex",
+            "--retry-request",
+            request,
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let second = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "receipt work",
+            "--agent",
+            "codex",
+            "--retry-request",
+            request,
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let first: Value = serde_json::from_slice(&first).unwrap();
+    let second: Value = serde_json::from_slice(&second).unwrap();
+    assert_eq!(first["state"], "ready");
+    assert!(first["dispatchId"].as_str().unwrap().starts_with("ctx_"));
+    assert_eq!(first["mutation"]["replayed"], false);
+    assert_eq!(first["dispatchId"], second["dispatchId"]);
+    assert_eq!(second["mutation"]["replayed"], true);
+
+    env.pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "x",
+            "--agent",
+            "codex",
+            "--on",
+            "remote",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .code(1);
+
+    env.pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "x",
+            "--agent",
+            "codex",
+            "--setup",
+            "run",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn cli_t7_worker_commands_parse_documented_flags() {
+    let cases: &[&[&str]] = &[
+        &[
+            "pod",
+            "worker-start",
+            "--task",
+            "task_000000000001",
+            "--agent",
+            "codex",
+            "--worktree",
+            "new-top-level",
+            "--name",
+            "b",
+            "--repo",
+            "path:/r",
+            "--base-branch",
+            "main",
+            "--display-name",
+            "d",
+            "--comment",
+            "c",
+            "--setup",
+            "skip",
+            "--model",
+            "m",
+            "--effort",
+            "high",
+            "--fast",
+            "--timeout-ms",
+            "1000",
+            "--run",
+            "run_000000000001",
+        ],
+        &[
+            "pod",
+            "worker-start",
+            "--spec",
+            "s",
+            "--terminal",
+            "term_1",
+            "--task-title",
+            "t",
+            "--deps",
+            "[]",
+            "--parent",
+            "task_000000000001",
+            "--retry-of",
+            "ctx_000000000001",
+            "--on",
+            "host",
+        ],
+        &["pod", "worker-show", "--dispatch", "ctx_000000000001"],
+        &[
+            "pod",
+            "worker-list",
+            "--run",
+            "run_000000000001",
+            "--terminal-state",
+            "active",
+            "--limit",
+            "100",
+            "--cursor",
+            "1",
+        ],
+        &["pod", "worker-stop", "--dispatch", "ctx_000000000001"],
+        &["pod", "worker-abandon", "--dispatch", "ctx_000000000001"],
+        &[
+            "pod",
+            "worker-retain",
+            "--dispatch",
+            "ctx_000000000001",
+            "--reason",
+            "review",
+        ],
+        &["pod", "worker-release", "--dispatch", "ctx_000000000001"],
+        &[
+            "pod",
+            "dispatch",
+            "--task",
+            "task_000000000001",
+            "--to",
+            "term_1",
+            "--inject",
+            "--dry-run",
+            "--return-preamble",
+        ],
+        &["pod", "dispatch-show", "--task", "task_000000000001"],
+    ];
+    for args in cases {
+        pod::cli::clap_command()
+            .try_get_matches_from(*args)
+            .unwrap();
+    }
+}
+
+#[test]
+fn worker_show_and_worker_list_print_the_brief_path() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "workers", "--json"])
+        .assert()
+        .success();
+    let started = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "brief path work",
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    let dispatch = started["dispatchId"].as_str().unwrap();
+    let suffix = format!("preambles/{dispatch}.txt");
+
+    let shown = env
+        .pod(Some("term-coord"))
+        .args(["worker-show", "--dispatch", dispatch, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let shown: Value = serde_json::from_slice(&shown).unwrap();
+    assert!(shown["briefPath"].as_str().unwrap().ends_with(&suffix));
+    // A Codex worker has no reported cost: `null`, never `0`.
+    assert_eq!(shown.get("costUsd"), Some(&Value::Null));
+
+    let listed = env
+        .pod(Some("term-coord"))
+        .args(["worker-list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let listed: Value = serde_json::from_slice(&listed).unwrap();
+    let row = &listed["workers"][0];
+    assert_eq!(row["dispatchId"], dispatch);
+    assert!(row["briefPath"].as_str().unwrap().ends_with(&suffix));
+    assert_eq!(row.get("costUsd"), Some(&Value::Null));
+}
+
+#[test]
+fn cli_failed_start_exits_1_with_failure_receipt_and_stop_release_shapes() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "workers", "--json"])
+        .assert()
+        .success();
+    let failed = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "no such branch",
+            "--agent",
+            "codex",
+            "--worktree",
+            "branch:missing",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let failed: Value = serde_json::from_slice(&failed).unwrap();
+    assert_eq!(failed["state"], "failed");
+    assert_eq!(failed["failedStage"], "placement");
+    assert_eq!(failed["dispatch"]["status"], "failed");
+    assert_eq!(failed["worker"]["state"], "failed");
+    assert!(failed["effects"].is_array() && failed["residualResources"].is_array());
+    // Placement failed before any pane existed: nothing to recover.
+    assert!(failed.get("nextCommands").is_none());
+    assert_eq!(failed["setup"]["source"], "existing_worktree");
+    assert!(failed["runId"].is_string() && failed["timeoutMs"].is_number());
+    assert_eq!(failed["setup"]["state"], "none");
+
+    let remote = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "x",
+            "--agent",
+            "codex",
+            "--on",
+            "h",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .get_output()
+        .stderr
+        .clone();
+    let remote: Value = serde_json::from_slice(&remote).unwrap();
+    assert_eq!(remote["error"]["code"], "remote_unsupported");
+
+    env.pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "x",
+            "--terminal",
+            "codex-0000",
+            "--worktree",
+            "path:/tmp",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+
+    let started = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "work",
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    let dispatch = started["dispatchId"].as_str().unwrap().to_owned();
+    assert_eq!(started["worker"]["terminalState"], "active");
+    assert_eq!(started["launch"]["requested"]["agent"], "codex");
+
+    let stopped = env
+        .pod(Some("term-coord"))
+        .args(["worker-stop", "--dispatch", &dispatch, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stopped: Value = serde_json::from_slice(&stopped).unwrap();
+    assert_eq!(stopped["dispatch"]["terminationReason"], "canceled");
+    assert_eq!(stopped["worker"]["state"], "stopped");
+    assert_eq!(stopped["closedPanes"].as_array().unwrap().len(), 1);
+
+    let released = env
+        .pod(Some("term-coord"))
+        .args(["worker-release", "--dispatch", &dispatch, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let released: Value = serde_json::from_slice(&released).unwrap();
+    assert_eq!(released["worker"]["terminalState"], "released");
+    assert!(released["worker"].get("terminal_state").is_none());
+    assert!(released["closedTabs"].is_array() && released["leftAlone"].is_array());
+}

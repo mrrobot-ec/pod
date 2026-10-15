@@ -1,0 +1,115 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    },
+    {
+      "args": [
+        "check"
+      ],
+      "bind": {
+        "delivery": "/delivery/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    }
+  ],
+  "_args": [
+    "check",
+    "--ack",
+    "{delivery}",
+    "--wait",
+    "--timeout-ms",
+    "1000"
+  ],
+  "id": "d1d80fc3-bbcf-4e49-94fb-4177da38c40a",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "deliveryId": "delivery_46f0f0165fe8",
+    "messages": [
+      {
+        "id": "msg_69210b59a18d",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_b34be0d6-0d4b-4b64-bdbe-4d49030a2409",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "T0 review done: 9 defects fixed, 3 commits on main",
+        "body": "(1) I fixed and committed on main (274c5e2, c55bcf0, cd8e9fe). Each command now has one handler in its own commands/*.rs file, plus a cli::Ctx engine constructor, because no later task owns cli/mod.rs. I added 10 error codes that later tasks need but cannot add themselves (herdr_unreachable, herdr_e",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_b0b5b71e067f\",\"dispatchId\":\"ctx_0fd3702b5e21\",\"outcome\":\"succeeded\",\"filesModified\":[\"Cargo.toml\",\"Cargo.lock\",\"src/cli/mod.rs\",\"src/cli/commands/env.rs\",\"src/cli/commands/runs.rs\",\"src/cli/commands/tasks.rs\",\"src/cli/commands/gates.rs\",\"src/cli/commands/recovery.rs\",\"src/cli/command",
+        "created_at": "2026-10-12T23:19:33Z",
+        "delivered_at": null,
+        "delivery_contract": "current_delivery"
+      },
+      {
+        "id": "msg_7584ced10d28",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "dispatch:ctx_0a06bac7f837",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "Question",
+        "body": "herdr 0.9.3 plugins.mdx (linked from llms.txt) says the manifest file must be named herdr-plugin.toml (required top-level keys: id, name, version, min_herdr_version; events use 'on = ...' + command argv arrays). My Ownership lists plugin.toml, which herdr plugin link would not recognise. May I creat",
+        "type": "question",
+        "priority": "normal",
+        "thread_id": "msg_7584ced10d28",
+        "payload": "{\"taskId\":\"task_80e2518e2279\",\"dispatchId\":\"ctx_0a06bac7f837\",\"question\":\"herdr 0.9.3 plugins.mdx (linked from llms.txt) says the manifest file must be named herdr-plugin.toml (required top-level keys: id, name, version, min_herdr_version; events use 'on = ...' + command argv arrays). My Ownership l",
+        "created_at": "2026-10-12T23:19:35Z",
+        "delivered_at": null,
+        "delivery_contract": "current_delivery"
+      }
+    ],
+    "count": 3,
+    "replayed": false,
+    "acknowledged": "delivery_ff1a935529bf",
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "005b54bd-3741-462e-bca5-bbb2ab76d3b8",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}

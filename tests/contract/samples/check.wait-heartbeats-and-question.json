@@ -1,0 +1,94 @@
+{
+  "_provenance": "captured",
+  "_setup": [
+    {
+      "args": [
+        "run-create",
+        "--objective",
+        "Add rate limiting"
+      ],
+      "bind": {
+        "run": "/run/id"
+      }
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    },
+    {
+      "args": [
+        "send",
+        "--subject",
+        "hello",
+        "--to",
+        "run:{run}",
+        "--body",
+        "hi"
+      ]
+    }
+  ],
+  "_args": [
+    "check",
+    "--wait",
+    "--timeout-ms",
+    "1000"
+  ],
+  "id": "2eb6c436-6d35-4c5c-9730-98813d7554a9",
+  "ok": true,
+  "result": {
+    "runId": "run_31fc2c96a4a1",
+    "deliveryId": "delivery_ff1a935529bf",
+    "messages": [
+      {
+        "id": "msg_c4d36d178dd9",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_b34be0d6-0d4b-4b64-bdbe-4d49030a2409",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_b0b5b71e067f\",\"dispatchId\":\"ctx_0fd3702b5e21\",\"phase\":\"investigating\"}",
+        "created_at": "2026-10-12T22:26:34Z",
+        "delivered_at": "2026-10-12T22:27:08Z",
+        "delivery_contract": "current_delivery"
+      },
+      {
+        "id": "msg_16566254a02f",
+        "run_id": "run_31fc2c96a4a1",
+        "from_handle": "term_b34be0d6-0d4b-4b64-bdbe-4d49030a2409",
+        "to_handle": "run:run_31fc2c96a4a1",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_b0b5b71e067f\",\"dispatchId\":\"ctx_0fd3702b5e21\",\"phase\":\"reviewing\"}",
+        "created_at": "2026-10-12T22:28:37Z",
+        "delivered_at": "2026-10-12T22:28:38Z",
+        "delivery_contract": "current_delivery"
+      }
+    ],
+    "count": 4,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "9ca8e17a-62c3-491a-9879-26afde8f2f3d",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "c44ad45b-5e1b-4c4c-8a8a-9ce911f395ef"
+  }
+}
