@@ -162,7 +162,11 @@ pub trait Herdr: Send + Sync {
     /// sound name such as `request`.
     fn notification_show(&self, title: &str, body: Option<&str>, sound: &str) -> Result<()>;
     fn worktree_create(&self, req: &WorktreeCreate) -> Result<WorktreeInfo>;
-    fn worktree_list(&self) -> Result<Vec<WorktreeInfo>>;
+    /// The worktrees of the repository containing `cwd` (herdr's
+    /// `worktree.list` with `cwd`). Without one herdr answers for its focused
+    /// workspace, whatever the person is looking at, which may be no
+    /// repository at all.
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>>;
     fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo>;
     fn agent_start(
         &self,

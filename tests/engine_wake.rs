@@ -1322,7 +1322,7 @@ impl Herdr for MinimalHerdr {
     fn worktree_create(&self, _: &WorktreeCreate) -> Result<WorktreeInfo> {
         self.unsupported()
     }
-    fn worktree_list(&self) -> Result<Vec<WorktreeInfo>> {
+    fn worktree_list(&self, _cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
         Ok(Vec::new())
     }
 

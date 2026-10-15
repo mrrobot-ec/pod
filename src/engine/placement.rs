@@ -121,11 +121,23 @@ pub fn place(
             })
         }
         Worktree::Path(path) => {
-            let tracked = engine
-                .herdr
-                .worktree_list()?
-                .iter()
-                .any(|known| known.path == *path);
+            // herdr lists the worktrees of the repository containing the
+            // folder it is given. Asked without one it answers for its
+            // focused workspace, whatever the person is looking at, which may
+            // be no repository (seen live 2026-10-15: four starts failed with
+            // git's "not a git repository" for the focused folder while every
+            // target was a valid worktree).
+            let tracked = match engine.herdr.worktree_list(Some(path)) {
+                Ok(known) => known.iter().any(|known| known.path == *path),
+                // The target itself is no repository: a plain folder.
+                Err(error) if error.message.contains("not a git repository") => false,
+                Err(error) => {
+                    return Err(at_step(
+                        &format!("herdr worktree.list in {}", path.display()),
+                        error,
+                    ));
+                }
+            };
             if tracked {
                 opened(engine, worktree, path)
             } else {
@@ -136,7 +148,13 @@ pub fn place(
             let qualified = format!("refs/heads/{branch}");
             let path = engine
                 .herdr
-                .worktree_list()?
+                .worktree_list(Some(coordinator_path))
+                .map_err(|error| {
+                    at_step(
+                        &format!("herdr worktree.list in {}", coordinator_path.display()),
+                        error,
+                    )
+                })?
                 .into_iter()
                 .find(|worktree| worktree.branch == *branch || worktree.branch == qualified)
                 .map(|worktree| worktree.path)
@@ -220,6 +238,15 @@ fn resolve_repo(engine: &Engine, repo: Option<&str>, coordinator_path: &Path) ->
     git_root(coordinator_path).ok_or_else(|| {
         PodError::usage("--repo is required when the coordinator folder is not in a Git repository")
     })
+}
+
+/// The error with the step and folder it happened in, so a placement failure
+/// says which directory a git message is about.
+fn at_step(step: &str, error: PodError) -> PodError {
+    PodError {
+        message: format!("{step}: {}", error.message),
+        ..error
+    }
 }
 
 fn git_root(path: &Path) -> Option<PathBuf> {

@@ -392,13 +392,13 @@ impl Herdr for SocketHerdr {
         worktree_info(&result, "worktree.create")
     }
 
-    fn worktree_list(&self) -> Result<Vec<WorktreeInfo>> {
-        let result = self.expected_within(
-            "worktree.list",
-            json!({"trust_repository": false}),
-            "worktree_list",
-            WORKTREE_TIMEOUT,
-        )?;
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
+        let mut params = json!({"trust_repository": false});
+        if let Some(cwd) = cwd {
+            params["cwd"] = json!(cwd);
+        }
+        let result =
+            self.expected_within("worktree.list", params, "worktree_list", WORKTREE_TIMEOUT)?;
         let values = result
             .get("worktrees")
             .and_then(Value::as_array)

@@ -26,6 +26,7 @@ struct State {
     screens: BTreeMap<String, String>,
     agents: BTreeMap<String, AgentInfo>,
     worktrees: Vec<WorktreeInfo>,
+    worktree_list_error: Option<String>,
     folder_workspaces: BTreeMap<std::path::PathBuf, String>,
     removed_workspaces: std::collections::BTreeSet<String>,
     agent_start_error: Option<String>,
@@ -63,6 +64,7 @@ impl FakeHerdr {
                 screens: BTreeMap::new(),
                 agents: BTreeMap::new(),
                 worktrees: Vec::new(),
+                worktree_list_error: None,
                 folder_workspaces: BTreeMap::new(),
                 removed_workspaces: std::collections::BTreeSet::new(),
                 agent_start_error: None,
@@ -298,6 +300,15 @@ impl FakeHerdr {
             .expect("fake herdr mutex poisoned")
             .agent_start_argv
             .clone()
+    }
+
+    /// Makes every `worktree_list` fail with `message`, as herdr does when
+    /// the folder it looks at is no repository.
+    pub fn fail_worktree_list(&self, message: &str) {
+        self.state
+            .lock()
+            .expect("fake herdr mutex poisoned")
+            .worktree_list_error = Some(message.to_owned());
     }
 
     pub fn fail_pane_send_text(&self, message: &str) {
@@ -780,14 +791,20 @@ impl Herdr for FakeHerdr {
         })
     }
 
-    fn worktree_list(&self) -> Result<Vec<WorktreeInfo>> {
-        self.record("worktree_list".into());
-        Ok(self
-            .state
-            .lock()
-            .expect("fake herdr mutex poisoned")
-            .worktrees
-            .clone())
+    fn worktree_list(&self, cwd: Option<&Path>) -> Result<Vec<WorktreeInfo>> {
+        self.record(match cwd {
+            Some(cwd) => format!("worktree_list:{}", cwd.display()),
+            None => "worktree_list".into(),
+        });
+        let state = self.state.lock().expect("fake herdr mutex poisoned");
+        if let Some(message) = &state.worktree_list_error {
+            return Err(PodError::new(
+                ErrorCode::HerdrError,
+                message.clone(),
+                &["herdr status server"],
+            ));
+        }
+        Ok(state.worktrees.clone())
     }
 
     fn worktree_open(&self, path: &Path) -> Result<WorktreeInfo> {

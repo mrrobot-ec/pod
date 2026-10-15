@@ -76,7 +76,7 @@ One entry per row of the failure table in spec section 13, then entries for spec
 
 **Symptom:** Exit 1 with a receipt holding `failedStage`, `setup`, `effects`, `residualResources`, and recovery commands in `nextCommands`. If the start created a pane, the worker is `reclaimable`; for `start_unknown` the Task is `blocked`.
 
-**Fix:** Read `failedStage` (`preflight`, `placement`, `setup`, `pane`, `agent`, `inject`, `record`). Run the recovery commands in the receipt's `nextCommands`, usually `pod worker-release --dispatch <id>` for the leftover pane. Fix the cause (for `setup`, the repo's setup script) and start again, with `--retry-of` if the Task is `failed` or `blocked`. After 3 cumulative failures the Task is `failed` and the Dispatch `circuit_broken`.
+**Fix:** Read `failedStage` (`preflight`, `placement`, `setup`, `pane`, `agent`, `inject`, `record`). A `placement` failure names the herdr step and the folder it looked at (`herdr worktree.list in <folder>: ...`); before 0.2.3 pod asked herdr for its worktree list without a folder, so herdr answered for its focused workspace and a start failed with `fatal: not a git repository` whenever the person was looking at a folder that was none. Run the recovery commands in the receipt's `nextCommands`, usually `pod worker-release --dispatch <id>` for the leftover pane. Fix the cause (for `setup`, the repo's setup script) and start again, with `--retry-of` if the Task is `failed` or `blocked`. After 3 cumulative failures the Task is `failed` and the Dispatch `circuit_broken`.
 
 ### Prompt typed but turn not observed
 

@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Fixed
 
+- `worker-start --worktree path:<folder>` could fail at `placement` with git's `fatal: not a git repository` while the target was a valid worktree: pod asked herdr for its worktree list without a folder, so herdr answered for its focused workspace, whatever the person was looking at (seen live 2026-10-15, four starts in a row while a folder that was no repository had focus). Placement now lists the target's own repository, places a target that is no repository as a plain folder, and names the step and folder in any other failure.
 - Mail that landed while the coordinator was busy, or while a person was typing in its pane, could sit unread for good: the commit's attempt was recorded `skipped`, so the coordinator's next idle hook, inside the ladder's minute, was refused, and with no tick or later command nothing retried it (a `worker_done` seen live 2026-10-15). A trigger that finds the recipient working, its pane not yet proven quiet, or a wake in flight now records nothing, whatever the trigger: the ladder keeps its position and the next eligible trigger nudges at once. Only typed nudges, failed inputs, and skips for a recipient pod could not reach count toward `unreachable`, and every mutating command retries every mailbox of the Run with unread mail not already in an outstanding Delivery.
 
 ## [0.2.2] - 2026-10-15

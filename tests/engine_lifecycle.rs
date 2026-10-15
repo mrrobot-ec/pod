@@ -161,6 +161,59 @@ fn folder_placement_creates_a_workspace_named_after_the_folder() {
     assert_eq!(released.closed_tabs, [tab]);
 }
 
+/// Seen live 2026-10-15: herdr's `worktree.list` answers for its focused
+/// workspace unless given a folder, and four starts failed with git's "not a
+/// git repository" for the folder the person happened to be looking at while
+/// every target was a valid worktree. Placement asks for the target's own
+/// repository; a target that is no repository is a plain folder; any other
+/// herdr failure names the step and the folder.
+#[test]
+fn path_placement_lists_the_targets_repository_not_the_focused_workspace() {
+    let (env, run, task) = seeded();
+    let monaco = env.tmp.path().join("monaco");
+    let mut start = input(task, run.clone());
+    start.worktree = Worktree::Path(monaco.clone());
+    lifecycle::worker_start(&env.engine, start).unwrap();
+    let calls = env.herdr.calls();
+    assert!(
+        calls.contains(&format!("worktree_list:{}", monaco.display())),
+        "{calls:?}"
+    );
+    assert!(!calls.iter().any(|call| call == "worktree_list"));
+
+    let plain = env.tmp.path().join("plain");
+    env.herdr
+        .fail_worktree_list("fatal: not a git repository (or any of the parent directories): .git");
+    let mut start = input(new_task(&env, &run, "plain"), run.clone());
+    start.worktree = Worktree::Path(plain.clone());
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    assert_eq!(
+        (receipt.state.as_str(), receipt.failed_stage),
+        ("ready", None)
+    );
+    assert!(
+        env.herdr
+            .calls()
+            .contains(&format!("workspace_create:{}:plain", plain.display()))
+    );
+
+    env.herdr.fail_worktree_list("herdr did not answer");
+    let mut start = input(new_task(&env, &run, "third"), run);
+    start.worktree = Worktree::Path(plain.clone());
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    assert_eq!(receipt.failed_stage.as_deref(), Some("placement"));
+    assert_eq!(
+        receipt.last_error.as_deref(),
+        Some(
+            format!(
+                "herdr worktree.list in {}: herdr did not answer",
+                plain.display()
+            )
+            .as_str()
+        )
+    );
+}
+
 #[test]
 fn new_worktree_space_is_labelled_repo_slash_name_unless_display_name_is_given() {
     let (env, run, task) = seeded();
