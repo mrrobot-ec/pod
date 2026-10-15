@@ -6,6 +6,7 @@ use pod::ErrorCode;
 use pod::engine::deliveries;
 use pod::engine::groups;
 use pod::engine::messages::{self, SendInput};
+use pod::engine::wake;
 use pod::ids::{DeliveryId, DispatchId, RunId, TaskId};
 use serde_json::{Value, json};
 use support::TestEnv;
@@ -248,6 +249,22 @@ fn rejected_lifecycle_stored_as_high_status_and_exits_1() {
     let error = messages::send(&env.engine, input("heartbeat")).unwrap_err();
     assert_eq!(error.code, ErrorCode::CallerFenced);
     assert_eq!(error.exit_code(), 1);
+    // The stored status is mail like any other: the error names it, and the
+    // commit hook made the coordinator's first nudge attempt (recorded
+    // `skipped` here, since no coordinator agent is detected).
+    let mailbox = format!("run:{RUN}");
+    assert_eq!(error.data["stored"]["mailbox"], mailbox);
+    assert!(
+        error.data["stored"]["messageId"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("msg_"))
+    );
+    let ladder = env
+        .engine
+        .store
+        .read(|tx| wake::ladder_position(tx, &mailbox))
+        .unwrap();
+    assert_eq!(ladder.attempts, 1);
     let stored: (String, String, String) = env
         .engine
         .store
@@ -608,16 +625,72 @@ fn explicit_delivery_id_parses() {
     assert_eq!(json!({"ok": true})["ok"], true);
 }
 
+/// Seen live 2026-10-15: a worker's `nohup` heartbeat loop is reparented when
+/// its shell exits, so the agent is no ancestor of its `pod` calls; it still
+/// runs on the agent's terminal, which is the worker's identity. Needs a
+/// controlling terminal, so it is skipped where the tests run without one.
+#[test]
+fn a_background_job_on_the_agents_terminal_is_accepted_with_a_warning() {
+    let tty = std::process::Command::new("ps")
+        .args(["-o", "tty=", "-p", &std::process::id().to_string()])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .unwrap_or_default();
+    if tty.is_empty() || tty.starts_with('?') {
+        eprintln!("skipped: this test process has no controlling terminal");
+        return;
+    }
+    let mut env = TestEnv::new();
+    seed_worker(&env, "dispatched");
+    // A child on the same terminal that is not an ancestor of this process.
+    let mut agent = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    env.engine
+        .store
+        .tx(|tx| {
+            tx.0.execute(
+                "UPDATE dispatches SET assignee_pid = ?2 WHERE id = ?1",
+                (DISPATCH, agent.id()),
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    env.as_caller(TERMINAL, std::process::id());
+    let sent = messages::send(&env.engine, input("heartbeat"));
+    agent.kill().unwrap();
+    agent.wait().unwrap();
+    let receipt = sent.unwrap();
+    assert!(
+        receipt
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("background job")),
+        "{:?}",
+        receipt.warnings
+    );
+    assert_eq!(message_count(&env, "heartbeat"), 1);
+}
+
 #[test]
 fn worker_identity_changed_when_agent_process_is_not_an_ancestor() {
     let mut env = TestEnv::new();
     seed_worker(&env, "dispatched");
     // A live process that is not an ancestor of this test process stands in
     // for the agent that used to own the pane.
-    let mut stranger = std::process::Command::new("sleep")
-        .arg("30")
-        .spawn()
-        .unwrap();
+    // In its own session, so it shares no terminal with this process either.
+    let mut command = std::process::Command::new("sleep");
+    command.arg("30");
+    // SAFETY: `setsid` is async-signal-safe and touches nothing of the
+    // parent's state between fork and exec.
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut command, || {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut stranger = command.spawn().unwrap();
     env.engine
         .store
         .tx(|tx| {

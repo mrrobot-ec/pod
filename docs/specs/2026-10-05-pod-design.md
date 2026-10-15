@@ -135,7 +135,12 @@ which herdr sets only for commands herdr launches.
 - A lifecycle message (`worker_done`, `heartbeat`, `escalation`,
   `decision_gate`) is accepted only when the caller's terminal ID equals the
   Dispatch's and the recorded agent process is an ancestor of the calling `pod`
-  process. Otherwise: `worker_identity_changed` or `caller_fenced`.
+  process, or shares its controlling terminal (a background job the agent
+  started, such as a heartbeat loop, that the system reparented when its shell
+  exited; accepted with a warning). Otherwise: `worker_identity_changed` or
+  `caller_fenced`. A refused lifecycle message is still stored for the
+  coordinator as a high-priority `status` with the reason, and runs the
+  commit hook like any other mail, so the coordinator is nudged about it.
 - `--from` and `--dispatch-capability` are accepted for Orca compatibility.
   `--from` must match the resolved caller when both are known.
   `--dispatch-capability` is ignored (as in Orca's local mode).
@@ -503,8 +508,9 @@ reported separately.
 - `task:` recipients are rejected. A sender bound to no Run must address
   `run:<id>` or `dispatch:<id>`.
 - A rejected lifecycle message is still stored, rewritten to type `status` with
-  priority `high` and a `rejected_reason`, and delivered to the coordinator; the
-  command exits 1.
+  priority `high` and a `rejected_reason`, and delivered to the coordinator
+  like any other mail (the commit hook runs: board, sidebar, nudge); the
+  command exits 1 and its error names the stored message in `data.stored`.
 - A repeated `worker_done` with the same outcome returns `settled` with
   `duplicate: true`. A conflicting one returns `inactive_dispatch`.
 - **Closure reasons** (after OpenRig). `worker_done` carries

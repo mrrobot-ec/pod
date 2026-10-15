@@ -13,7 +13,7 @@ The coordinator cannot see your terminal. A question or result left only in this
 ## The five obligations
 
 1. **Do only the task, and use `ask` for questions.** Stay within the target and ownership named in the spec. Never use a local question dialog; use `pod ask`. A blocked worker never spins: ask, or escalate with evidence.
-2. **Send a heartbeat** at the cadence the preamble names (default every 5 minutes) while working. Skip heartbeats only while you are blocked inside `ask` or `check --wait`.
+2. **Send a heartbeat** at the cadence the preamble names (default every 5 minutes) while working. Skip heartbeats only while you are blocked inside `ask` or `check --wait`. A background loop in your pane (`nohup sh -c 'while sleep 280; do pod send ... --type heartbeat ...; done' &`) is accepted, since it runs on your terminal; stop it before `worker_done`, or its later heartbeats are refused and reported to the coordinator.
 3. **Check for follow-ups** at checkpoints: before starting a new file, after a test run, and once more immediately before `worker_done`. Nothing interrupts you; a coordinator message arrives only when you look.
 4. **Send `worker_done` exactly once**, with `--outcome succeeded` when the work is done or `--outcome failed` when it is not. A failed outcome must say why, with `--reason` (and a `--reason-target` for some reasons). Never encode failure only in prose, and never exit silently.
 5. **Go idle after done.** Stop, return to an idle prompt, and do not start new work, poll, or keep calling `check`. Do not exit the shell.
@@ -85,7 +85,7 @@ Never send an empty body, and never send an example value from this guide litera
 
 `worker_done` and `heartbeat` always go to the Run mailbox regardless of `--to`. Success means the message is durably stored, nothing more. A repeated `worker_done` with the same outcome returns `settled` with `duplicate: true`, which is fine. A conflicting one returns `inactive_dispatch`: your outcome was already recorded differently, so stop and do not retry.
 
-If a lifecycle message is rejected (for example `worker_identity_changed` or `caller_fenced`), the command exits 1, but the message is still stored for the coordinator, rewritten to type `status` with priority `high` and a `rejected_reason`. For identity or fencing failures, do not keep retrying: stop and idle. For closure or escalation field validation failures, correct the flags and resend; the rejected message did not settle your Dispatch.
+If a lifecycle message is rejected (for example `worker_identity_changed` or `caller_fenced`), the command exits 1, but the message is still stored for the coordinator, rewritten to type `status` with priority `high` and a `rejected_reason`, named in the error's `data.stored`, and the coordinator is nudged about it like any other mail. For identity or fencing failures, do not keep retrying: stop and idle. For closure or escalation field validation failures, correct the flags and resend; the rejected message did not settle your Dispatch.
 
 ## Asking the coordinator
 

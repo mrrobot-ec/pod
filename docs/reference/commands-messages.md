@@ -89,7 +89,7 @@ Repeated `worker_done` with the same outcome returns `settled` with `duplicate: 
 A rejected lifecycle message is stored anyway in the Run mailbox, rewritten to type `status`, priority `high`, with `rejected_reason` set to the error code, and delivered to the coordinator; the command prints the error envelope and exits 1. Replaying it with the same `--retry-request` returns the same error without storing a second row.
 
 ```json
-{"error": {"code": "caller_fenced", "message": "the Dispatch is no longer active", "data": {"nextSteps": ["Do not retry. The message was stored for the coordinator; stop work and go idle."]}}}
+{"error": {"code": "caller_fenced", "message": "the Dispatch is no longer active", "data": {"nextSteps": ["Do not retry. The message was stored for the coordinator; stop work and go idle."], "stored": {"messageId": "msg_7d749eb544a3", "mailbox": "run:run_6960dfa3a7d7"}}}}
 ```
 
 Errors: `worker_identity_changed`, `caller_fenced`, `inactive_dispatch` (a conflicting repeat of `worker_done`), `closure_reason_required`, `closure_target_required`, `escalation_evidence_required`, `not_in_herdr`, `store_access_denied`. `caller_mismatch` when `--from` does not match the resolved caller, `invalid_recipient` for a refused `--to` (both exit 1). Using `--payload` with a typed flag, or `--outcome`, `--reason`, or `--reason-target` with another type, is a usage error (exit 2). Exit 0 on success.

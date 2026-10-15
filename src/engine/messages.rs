@@ -61,6 +61,19 @@ pub struct Rejection {
     pub message: String,
     pub next_steps: Vec<String>,
     pub data: Map<String, Value>,
+    /// The high-priority `status` a refused lifecycle message was stored as
+    /// for the coordinator (8.1): mail like any other, so the commit hook
+    /// runs for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<StoredRefusal>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredRefusal {
+    pub run_id: RunId,
+    pub mailbox: String,
+    pub message_id: MessageId,
 }
 
 impl From<PodError> for Rejection {
@@ -70,17 +83,25 @@ impl From<PodError> for Rejection {
             message: error.message,
             next_steps: error.next_steps,
             data: error.data,
+            stored: None,
         }
     }
 }
 
 impl From<Rejection> for PodError {
     fn from(rejection: Rejection) -> Self {
+        let mut data = rejection.data;
+        if let Some(stored) = rejection.stored {
+            data.insert(
+                "stored".into(),
+                serde_json::json!({"messageId": stored.message_id, "mailbox": stored.mailbox}),
+            );
+        }
         PodError {
             code: rejection.code,
             message: rejection.message,
             next_steps: rejection.next_steps,
-            data: rejection.data,
+            data,
         }
     }
 }
@@ -113,18 +134,29 @@ pub fn send_with_receipt(
         receipts::with_receipt_replay(engine, request, "send", &hash, |tx| {
             send_in(engine, tx, now, caller, &input)
         })?;
-    if let SendOutcome::Stored(receipt) = &outcome {
-        let rows = engine
-            .store
-            .read(|tx| messages::get_many(tx, &receipt.message_ids))?;
-        if let Some(row) = rows.first() {
-            let mut mailboxes = rows
-                .iter()
-                .map(|row| row.mailbox.clone())
-                .collect::<Vec<_>>();
-            mailboxes.sort();
-            mailboxes.dedup();
-            engine.after_commit(&row.run_id, &mailboxes)?;
+    match &outcome {
+        SendOutcome::Stored(receipt) => {
+            let rows = engine
+                .store
+                .read(|tx| messages::get_many(tx, &receipt.message_ids))?;
+            if let Some(row) = rows.first() {
+                let mut mailboxes = rows
+                    .iter()
+                    .map(|row| row.mailbox.clone())
+                    .collect::<Vec<_>>();
+                mailboxes.sort();
+                mailboxes.dedup();
+                engine.after_commit(&row.run_id, &mailboxes)?;
+            }
+        }
+        // A refused lifecycle message was stored for the coordinator as a
+        // high-priority status: mail like any other, so the board, the
+        // sidebar, and the nudge follow it too (seen live 2026-10-15, when
+        // refused heartbeats sat unannounced).
+        SendOutcome::Rejected(rejection) => {
+            if let Some(stored) = &rejection.stored {
+                engine.after_commit(&stored.run_id, std::slice::from_ref(&stored.mailbox))?;
+            }
         }
     }
     outcome.into_result().map(|receipt| (receipt, replayed))
@@ -240,24 +272,34 @@ pub fn send_in(
     // A refused lifecycle message is still stored for the coordinator,
     // rewritten as a high-priority status (8.1). Other refusals store nothing.
     let refuse = |run: Option<&RunId>, from: &str, error: PodError| -> Result<SendOutcome> {
-        if let (true, Some(run)) = (lifecycle, run) {
-            let reason = error_code(&error.code);
-            let mut row = message_row(
-                run,
-                format!("run:{run}"),
-                from,
-                Some(&caller.terminal_id),
-                input,
-                input.thread_id.as_deref(),
-                input.dispatch_id.as_ref(),
-                now,
-            );
-            row.r#type = "status".to_owned();
-            row.priority = "high".to_owned();
-            row.rejected_reason = Some(reason);
-            messages::insert(tx, &row)?;
-        }
-        Ok(SendOutcome::Rejected(error.into()))
+        let stored = match (lifecycle, run) {
+            (true, Some(run)) => {
+                let reason = error_code(&error.code);
+                let mut row = message_row(
+                    run,
+                    format!("run:{run}"),
+                    from,
+                    Some(&caller.terminal_id),
+                    input,
+                    input.thread_id.as_deref(),
+                    input.dispatch_id.as_ref(),
+                    now,
+                );
+                row.r#type = "status".to_owned();
+                row.priority = "high".to_owned();
+                row.rejected_reason = Some(reason);
+                messages::insert(tx, &row)?;
+                Some(StoredRefusal {
+                    run_id: run.clone(),
+                    mailbox: row.mailbox.clone(),
+                    message_id: row.id.clone(),
+                })
+            }
+            _ => None,
+        };
+        let mut rejection: Rejection = error.into();
+        rejection.stored = stored;
+        Ok(SendOutcome::Rejected(rejection))
     };
     let context_run = context.as_ref().map(|context| context.run_id.clone());
 
@@ -709,6 +751,15 @@ fn process_identity(engine: &Engine, dispatch: &DispatchRow, caller_pid: u32) ->
     };
     match proc_ancestor(agent_pid, caller_pid) {
         Some(true) => Identity::Verified,
+        // Not a descendant, but on the agent's terminal: a background job
+        // the agent started (`nohup ... &`) that the system reparented when
+        // its shell exited. Seen live 2026-10-15: a worker's heartbeat loop
+        // was refused every five minutes while its worker_done went through.
+        Some(false) if shares_controlling_terminal(agent_pid, caller_pid) => Identity::Fallback(
+            "the pod process is not a descendant of the agent process but runs on its \
+             terminal (a background job); terminal identity used"
+                .into(),
+        ),
         Some(false) => Identity::Mismatch,
         // Section 19 item 2: the chain cannot be read (for example inside an
         // agent sandbox). herdr's pane process list may still corroborate it;
@@ -729,6 +780,28 @@ fn process_identity(engine: &Engine, dispatch: &DispatchRow, caller_pid: u32) ->
             )
         }
     }
+}
+
+/// Whether two live processes have the same controlling terminal, as `ps`
+/// names it (`ttys012`, `pts/3`). A process without one (`??`) shares none,
+/// and a dead or unreadable one neither.
+fn shares_controlling_terminal(a: u32, b: u32) -> bool {
+    match (controlling_terminal(a), controlling_terminal(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+fn controlling_terminal(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "tty=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let tty = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!tty.is_empty() && !tty.starts_with('?') && tty != "-").then_some(tty)
 }
 
 /// Whether `ancestor` is `child` or one of its ancestors; `None` when the
