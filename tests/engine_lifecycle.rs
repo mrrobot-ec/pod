@@ -2725,6 +2725,163 @@ fn the_last_release_of_two_workers_closes_its_space_and_then_the_parent() {
     assert_eq!(env.herdr.closed_workspaces(), [own_one, own_two, parent]);
 }
 
+/// Seen live 2026-10-16 on 0.2.9: `dispatch --to` into a reclaimable worker's
+/// pane moved the pane to the new Dispatch but left the spaces herdr opened
+/// for the placement on the old, already released row, so no release closed
+/// them. The spaces follow the pane's owner (spec 7.4).
+#[test]
+fn a_reused_pane_carries_the_opened_spaces_and_the_last_release_closes_them() {
+    let (env, run, _) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &linked);
+    let opened = opened_spaces(&env, &one.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    let (parent, own) = (opened[0].clone(), opened[1].clone());
+    settle(&env, &one.dispatch_id);
+    let next = new_task(&env, &run, "follow-up");
+    let receipt = lifecycle::dispatch(&env.engine, &next, &one.handle, true, false, false).unwrap();
+    let id = receipt.dispatch.as_ref().unwrap().id.clone();
+    assert_eq!(
+        worker_row(&env, &one.dispatch_id).terminal_state,
+        "released"
+    );
+    let effects: Vec<String> =
+        serde_json::from_value(worker_row(&env, &id).effects.unwrap()).unwrap();
+    // `dispatch --to` records no `pane_reused`; the carried spaces come first.
+    assert_eq!(
+        effects[..2],
+        [
+            format!("workspace_opened:{parent}"),
+            format!("workspace_opened:{own}")
+        ]
+    );
+    assert_eq!(opened_spaces(&env, &id), opened);
+    // The previous row keeps its own record.
+    assert_eq!(opened_spaces(&env, &one.dispatch_id), opened);
+
+    lifecycle::stop(&env.engine, &id).unwrap();
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    let released = lifecycle::release(&env.engine, &id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.left_alone, ["pane_already_closed"]);
+    assert_eq!(released.closed_workspaces, [own.clone(), parent.clone()]);
+    assert_eq!(env.herdr.closed_workspaces(), [own.clone(), parent.clone()]);
+    let (closed, left) = released_event_lists(&env, &run, &id);
+    assert_eq!(closed, [own, parent]);
+    assert_eq!(left, ["pane_already_closed"]);
+}
+
+/// A release that leaves the pane alone still closes the spaces herdr opened
+/// for the placement, under the same one-tab, one-pane, no-agent rule.
+#[test]
+fn a_release_that_leaves_the_pane_alone_still_closes_the_spaces() {
+    let (env, run, _) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &linked);
+    let opened = opened_spaces(&env, &one.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    let pane = worker_row(&env, &one.dispatch_id).pane_id.unwrap();
+    env.herdr.pane_close(&pane).unwrap();
+    settle(&env, &one.dispatch_id);
+    let released = lifecycle::release(&env.engine, &one.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.left_alone, ["user_taken_over"]);
+    let closing: Vec<String> = opened.iter().rev().cloned().collect();
+    assert_eq!(released.closed_workspaces, closing);
+    assert_eq!(env.herdr.closed_workspaces(), closing);
+    let (closed, left) = released_event_lists(&env, &run, &one.dispatch_id);
+    assert_eq!(closed, closing);
+    assert_eq!(left, ["user_taken_over"]);
+}
+
+/// While the new Dispatch of a reused pane is active, the worktree space
+/// holds a live pod worker: releasing the old worker is a no-op, and a sweep
+/// run by an unrelated release closes neither space (herdr would refuse the
+/// parent while the worktree space is open).
+#[test]
+fn an_active_reuse_keeps_the_worktree_space_while_the_old_worker_releases() {
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &linked);
+    let opened = opened_spaces(&env, &one.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &one.dispatch_id);
+    let next = new_task(&env, &run, "follow-up");
+    let receipt = lifecycle::dispatch(&env.engine, &next, &one.handle, true, false, false).unwrap();
+    let id = receipt.dispatch.as_ref().unwrap().id.clone();
+    assert_eq!(worker_row(&env, &id).terminal_state, "active");
+    // The live Dispatch holds a pane in the worktree's space.
+    assert_eq!(
+        worker_row(&env, &id).workspace_id.as_deref(),
+        Some(opened[1].as_str())
+    );
+
+    let again = lifecycle::release(&env.engine, &one.dispatch_id).unwrap();
+    assert_eq!(again.worker.terminal_state, "released");
+    assert!(again.closed_workspaces.is_empty());
+    assert!(env.herdr.closed_workspaces().is_empty());
+
+    let third = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &third.dispatch_id);
+    let released = lifecycle::release(&env.engine, &third.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    for space in &opened {
+        assert!(
+            !released.closed_workspaces.contains(space),
+            "{:?}",
+            released.closed_workspaces
+        );
+        assert!(
+            !env.herdr.closed_workspaces().contains(space),
+            "{:?}",
+            env.herdr.closed_workspaces()
+        );
+    }
+}
+
+/// The sweep walks a released worker's recorded spaces worktree first, so
+/// both close in one pass instead of the parent waiting for another release.
+#[test]
+fn the_sweep_closes_a_released_workers_worktree_space_before_its_parent() {
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &linked);
+    let opened = opened_spaces(&env, &one.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &one.dispatch_id);
+    // As carry_pane records a finished worker, without closing anything.
+    env.engine
+        .store
+        .tx(|tx| workers::update_terminal_state(tx, &one.dispatch_id, "released"))
+        .unwrap();
+    let two = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &two.dispatch_id);
+    let released = lifecycle::release(&env.engine, &two.dispatch_id).unwrap();
+    let closing: Vec<String> = opened.iter().rev().cloned().collect();
+    assert_eq!(released.closed_workspaces, closing);
+    assert!(released.left_alone.is_empty(), "{:?}", released.left_alone);
+    assert_eq!(env.herdr.closed_workspaces(), closing);
+    assert!(
+        !env.herdr
+            .calls()
+            .iter()
+            .any(|call| call.starts_with("workspace_close_refused:")),
+        "{:?}",
+        env.herdr.calls()
+    );
+}
+
 /// A parent space a person opened before the start is not pod's to close, at
 /// any release.
 #[test]

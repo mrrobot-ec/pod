@@ -434,11 +434,16 @@ release.
   - **Reuse:** `worker-start --task <next> --terminal <handle>`, or
     `dispatch --task <next> --to <handle>` for a retained worker - same pane,
     same agent context, the brief typed in; cleanup ownership moves to the
-    new Dispatch and the worker that last held the pane is released.
+    new Dispatch and the worker that last held the pane is released. The
+    spaces herdr opened for the pane's placement carry to the new Dispatch
+    with the pane.
   - **Retain:** `worker-retain` - keep the pane, with a recorded reason.
   - **Release:** `worker-release` - archive the final screen text, then close
     the worker's tab only if pod created it, then the spaces herdr opened for
-    it: the worktree's space first, the parent after it (7.2). A parent herdr
+    it, whether or not the tab was pod's to close (the same one-tab, one-pane,
+    no-agent, no-pod-worker rule decides): the worktree's space first, the
+    parent after it (7.2). The sweep retries released workers' spaces worktree
+    first, and a refused parent once more after the pass. A parent herdr
     refuses because another worktree space of the repository is still open is
     listed in `leftAlone` as `workspace_group_open:<id>` and retried by every
     later release in the Run. Reused, pre-existing, setup, coordinator,

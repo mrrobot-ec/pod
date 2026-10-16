@@ -170,7 +170,7 @@ See [`store_access_denied`](#store_access_denied) below.
 
 **Cause:** herdr refuses to close a repository's parent space while another worktree space of that repository is open (`workspace_group_close_required`), and pod never closes a group. The worker's own worktree space closes first, but a second worker's space keeps the parent in use.
 
-**Fix:** None needed. Every later release in the Run (and `worker-gc`) retries the parent spaces that released workers recorded, and closes one as soon as herdr allows it, when it still holds only its shell and no pod worker. A parent space a person opened, or used since, is never closed by pod; close it yourself.
+**Fix:** None needed. Every later release in the Run (and `worker-gc`) retries the parent spaces that released workers recorded, and closes one as soon as herdr allows it, when it still holds only its shell and no pod worker. A pane reused with `dispatch --to` or `worker-start --terminal` carries the spaces to the new Dispatch, and its release closes them. A parent space a person opened, or used since, is never closed by pod; close it yourself.
 
 ### A nudge never arrives
 

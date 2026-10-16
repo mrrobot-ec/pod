@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-10-16
+
+### Fixed
+
+- The spaces herdr opened for a placement are closed on every release, including a release that leaves the pane alone, and follow a reused pane to its new Dispatch; the retry closes the worktree space before the parent in one pass (seen live 2026-10-16 on 0.2.9).
+
 ## [0.2.9] - 2026-10-16
 
 ### Added

@@ -992,17 +992,19 @@ fn assign_session(launch: &Launch) -> Option<String> {
 /// Moves a pane's cleanup from the worker that last held it to `dispatch`
 /// (spec 7.4, reuse and `dispatch --to`): a finished previous worker
 /// (`reclaimable` or `retained`) is recorded `released`, and pod's ownership
-/// of the pane, its tab, and its worktree carry over, so a later release of
-/// the new Dispatch closes what pod created. A user takeover is permanent and
+/// of the pane, its tab, its worktree, and the spaces herdr opened for its
+/// placement (`workspace_opened:<id>` effects, in order) carry over, so a
+/// later release of the new Dispatch closes what pod created. Returns the
+/// carried effects. A user takeover is permanent and
 /// carries too; retain's own mark (its reason equals the retained reason)
 /// does not.
 fn carry_pane(
     tx: &crate::store::Tx<'_>,
     dispatch: &DispatchId,
     previous: Option<&workers::WorkerRow>,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let Some(old) = previous else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     if matches!(old.terminal_state.as_str(), "reclaimable" | "retained") {
         workers::update_terminal_state(tx, &old.dispatch_id, "released")?;
@@ -1013,7 +1015,14 @@ fn carry_pane(
     if old.user_owned && old.user_owned_reason.as_deref() != old.retained_reason.as_deref() {
         workers::update_user_owned(tx, dispatch, true, old.user_owned_reason.as_deref())?;
     }
-    Ok(())
+    let carried: Vec<String> = opened_workspaces_of(old)
+        .into_iter()
+        .map(|workspace| format!("workspace_opened:{workspace}"))
+        .collect();
+    if !carried.is_empty() {
+        workers::update_effects(tx, dispatch, Some(&json!(carried)))?;
+    }
+    Ok(carried)
 }
 
 fn carry_session(
@@ -1367,8 +1376,9 @@ fn reuse_start(
                 workers::update_pane_id(tx, dispatch, Some(&agent.pane_id))?;
                 workers::update_terminal_id(tx, dispatch, Some(&pane.terminal_id))?;
                 workers::update_workspace_id(tx, dispatch, Some(&pane.workspace_id))?;
-                carry_pane(tx, dispatch, previous_worker.as_ref())?;
-                workers::update_effects(tx, dispatch, Some(&json!(["pane_reused"])))?;
+                let mut effects = carry_pane(tx, dispatch, previous_worker.as_ref())?;
+                effects.push("pane_reused".into());
+                workers::update_effects(tx, dispatch, Some(&json!(effects)))?;
                 dispatches::update_assignee_terminal_id(tx, dispatch, Some(&pane.terminal_id))?;
                 dispatches::update_assignee_pid(tx, dispatch, Some(agent.pid))?;
                 carry_session(
@@ -1742,7 +1752,7 @@ pub fn dispatch(
                 // The pane's cleanup moves to this Dispatch, as on reuse
                 // (spec 7.4), so a worker finished here is released and a
                 // later release of this one closes what pod created.
-                carry_pane(
+                let _carried = carry_pane(
                     tx,
                     &id,
                     previous
@@ -2142,6 +2152,8 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
     let terminal_state = match left_reason {
         Some(reason) => {
             left.push(reason.to_owned());
+            closed_workspaces =
+                close_opened_workspaces(engine, &attempt.run_id, &worker, dispatch, &mut left);
             "released"
         }
         None => {
@@ -2263,28 +2275,48 @@ fn close_opened_workspaces(
                 if let Some(row) = workers::get(tx, &attempt.id)?
                     && row.terminal_state == "released"
                 {
-                    spaces.extend(opened_workspaces_of(&row));
+                    // Each row's own spaces worktree first, parent after.
+                    spaces.extend(opened_workspaces_of(&row).into_iter().rev());
                 }
             }
             Ok(spaces)
         })
         .unwrap_or_default();
     let mut tried = Vec::new();
+    let mut refused = Vec::new();
     for workspace in earlier {
         if closed.contains(&workspace) || tried.contains(&workspace) {
             continue;
         }
         tried.push(workspace.clone());
-        match close_plain_workspace(engine, &workspace, dispatch) {
-            Some(Ok(true)) => closed.push(workspace),
-            Some(Err(error)) => engine.warn(format!(
-                "workspace {workspace} herdr opened for an earlier worker was not closed: {}",
-                error.message
-            )),
-            Some(Ok(false)) | None => {}
-        }
+        sweep_workspace(engine, dispatch, workspace, &mut closed, &mut refused);
+    }
+    // A worktree space closed later in the pass may have freed a parent
+    // herdr refused earlier in it.
+    for workspace in refused {
+        sweep_workspace(engine, dispatch, workspace, &mut closed, &mut Vec::new());
     }
     closed
+}
+
+/// One attempt at closing a space an earlier worker opened. A refused one
+/// goes to `refused` for the retry; it never reaches `left`.
+fn sweep_workspace(
+    engine: &Engine,
+    dispatch: &DispatchId,
+    workspace: String,
+    closed: &mut Vec<String>,
+    refused: &mut Vec<String>,
+) {
+    match close_plain_workspace(engine, &workspace, dispatch) {
+        Some(Ok(true)) => closed.push(workspace),
+        Some(Ok(false)) => refused.push(workspace),
+        Some(Err(error)) => engine.warn(format!(
+            "workspace {workspace} herdr opened for an earlier worker was not closed: {}",
+            error.message
+        )),
+        None => {}
+    }
 }
 
 /// Closes `workspace` when herdr still has it and it holds only the shell
