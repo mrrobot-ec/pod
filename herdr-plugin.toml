@@ -9,7 +9,7 @@
 #   "The install preview lists every startup command" (spec 15: it also lists every hook).
 id = "pod"
 name = "pod"
-version = "0.2.8"
+version = "0.2.9"
 min_herdr_version = "0.9.3"
 description = "Supervised multi-agent orchestration for herdr"
 platforms = ["macos", "linux"]
