@@ -1134,23 +1134,26 @@ fn record_agent(
             assigned_session.map(|_| "pod_assigned"),
         )
     };
-    engine.store.tx(|tx| {
+    let screen = super::reconcile::blocked_screen(engine, &agent.pane_id, &agent.status);
+    let escalation = engine.store.tx(|tx| {
         // herdr detected the agent it started: presence is proven (7.6).
-        observe::record_herdr_state(
+        let escalation = observe::record_herdr_state(
             tx,
             engine.clock.now(),
             dispatch,
             agent.status.clone(),
             &agent.needs_input,
             Some("present"),
+            screen.as_deref(),
         )?;
         dispatches::update_assignee_pid(tx, dispatch, Some(agent.pid))?;
         dispatches::update_agent_kind(tx, dispatch, Some(kind))?;
         workers::update_session_id(tx, dispatch, session_id)?;
         workers::update_transcript_path(tx, dispatch, path.as_deref())?;
         workers::update_transcript_proof(tx, dispatch, proof)?;
-        Ok(())
-    })
+        Ok(escalation)
+    })?;
+    super::reconcile::announce(engine, escalation)
 }
 
 fn record_dispatched(
@@ -2158,7 +2161,8 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
                 Err(error) => Err(error),
             };
             if closed.is_ok() {
-                closed_workspaces = close_opened_workspaces(engine, &worker, dispatch);
+                closed_workspaces =
+                    close_opened_workspaces(engine, &attempt.run_id, &worker, dispatch, &mut left);
                 "released"
             } else {
                 "release_unknown"
@@ -2220,46 +2224,98 @@ fn opened_workspaces_of(worker: &workers::WorkerRow) -> Vec<String> {
 }
 
 /// Closes the spaces herdr opened for this worker's placement once its tab
-/// is gone (spec 7.2): the repository's parent space, and the worktree's own
-/// space, each only while it holds nothing but the shell herdr opened it
-/// with (one tab, one pane, no agent) and no other worker of pod. A space a
-/// person has since used, or that was open before the start, stays. A close
-/// herdr refuses is a warning, never a failed release.
+/// is gone (spec 7.2): the worktree's own space first and the repository's
+/// parent space after it, each only while it holds nothing but the shell
+/// herdr opened it with (one tab, one pane, no agent) and no other worker of
+/// pod. A space a person has since used, or that was open before the start,
+/// stays. herdr refuses a parent while another worktree space of the
+/// repository is open; that goes to `left` as `workspace_group_open:<id>`
+/// and a later release of the Run retries it. Any other refusal is a
+/// warning, never a failed release.
 fn close_opened_workspaces(
     engine: &Engine,
+    run: &RunId,
     worker: &workers::WorkerRow,
     dispatch: &DispatchId,
+    left: &mut Vec<String>,
 ) -> Vec<String> {
     let mut closed = Vec::new();
-    for workspace in opened_workspaces_of(worker) {
-        let Ok(Some(info)) = engine.herdr.workspace_get(&workspace) else {
-            continue;
-        };
-        let plain = info.tab_count.is_some_and(|tabs| tabs <= 1)
-            && info.pane_count.is_some_and(|panes| panes <= 1)
-            && info
-                .agent_status
-                .as_deref()
-                .is_none_or(|status| status == "unknown");
-        if !plain {
-            continue;
-        }
-        let busy = engine
-            .store
-            .read(|tx| workers::live_in_workspace(tx, &workspace, dispatch))
-            .unwrap_or(true);
-        if busy {
-            continue;
-        }
-        match engine.herdr.workspace_close(&workspace) {
-            Ok(()) => closed.push(workspace),
-            Err(error) => engine.warn(format!(
+    let mut opened = opened_workspaces_of(worker);
+    opened.reverse();
+    for workspace in opened {
+        match close_plain_workspace(engine, &workspace, dispatch) {
+            Some(Ok(true)) => closed.push(workspace),
+            Some(Ok(false)) => left.push(format!("workspace_group_open:{workspace}")),
+            Some(Err(error)) => engine.warn(format!(
                 "workspace {workspace} herdr opened for this worker was not closed: {}",
                 error.message
             )),
+            None => {}
+        }
+    }
+    // Spaces an earlier release had to leave open, because a worktree space
+    // of the same repository was still open, close once that one is gone.
+    let earlier: Vec<String> = engine
+        .store
+        .read(|tx| {
+            let mut spaces = Vec::new();
+            for attempt in dispatches::list_by_run(tx, run)? {
+                if let Some(row) = workers::get(tx, &attempt.id)?
+                    && row.terminal_state == "released"
+                {
+                    spaces.extend(opened_workspaces_of(&row));
+                }
+            }
+            Ok(spaces)
+        })
+        .unwrap_or_default();
+    let mut tried = Vec::new();
+    for workspace in earlier {
+        if closed.contains(&workspace) || tried.contains(&workspace) {
+            continue;
+        }
+        tried.push(workspace.clone());
+        match close_plain_workspace(engine, &workspace, dispatch) {
+            Some(Ok(true)) => closed.push(workspace),
+            Some(Err(error)) => engine.warn(format!(
+                "workspace {workspace} herdr opened for an earlier worker was not closed: {}",
+                error.message
+            )),
+            Some(Ok(false)) | None => {}
         }
     }
     closed
+}
+
+/// Closes `workspace` when herdr still has it and it holds only the shell
+/// herdr opened it with and no other pod worker. `None`: left alone;
+/// `Some(Ok(false))`: herdr refused because worktree spaces of the repository
+/// are open.
+fn close_plain_workspace(
+    engine: &Engine,
+    workspace: &str,
+    dispatch: &DispatchId,
+) -> Option<Result<bool>> {
+    let Ok(Some(info)) = engine.herdr.workspace_get(workspace) else {
+        return None;
+    };
+    let plain = info.tab_count.is_some_and(|tabs| tabs <= 1)
+        && info.pane_count.is_some_and(|panes| panes <= 1)
+        && info
+            .agent_status
+            .as_deref()
+            .is_none_or(|status| status == "unknown");
+    if !plain {
+        return None;
+    }
+    let busy = engine
+        .store
+        .read(|tx| workers::live_in_workspace(tx, workspace, dispatch))
+        .unwrap_or(true);
+    if busy {
+        return None;
+    }
+    Some(engine.herdr.workspace_close(workspace))
 }
 
 /// Releases the workers whose `worker_done` the coordinator just

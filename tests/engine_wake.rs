@@ -1304,7 +1304,7 @@ impl Herdr for MinimalHerdr {
     fn workspace_get(&self, _: &str) -> Result<Option<WorkspaceInfo>> {
         self.unsupported()
     }
-    fn workspace_close(&self, _: &str) -> Result<()> {
+    fn workspace_close(&self, _: &str) -> Result<bool> {
         self.unsupported()
     }
     fn workspace_for_folder(&self, _: &Path) -> Result<Option<String>> {
@@ -1862,6 +1862,7 @@ fn interruption_clears_only_on_a_bare_read() {
                 AgentStatus::Idle,
                 &[],
                 Some("present"),
+                None,
             )
         })
         .unwrap();

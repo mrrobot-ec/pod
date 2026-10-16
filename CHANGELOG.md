@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-10-16
+
+### Added
+
+- A worker blocked on an interactive prompt is reported as an `escalation` from `pod` in the Run mailbox, once per blocked episode, so `check --wait`, the Delivery replay, and the wake ladder reach the coordinator. `pod status` reports such a worker as stalled with reason `blocked_on_prompt`.
+
+### Fixed
+
+- Release closes the worktree space before the parent space. A parent herdr refuses while another worktree space of the repository is open is listed in `leftAlone` as `workspace_group_open:<id>`, and later releases in the Run retry it (seen live 2026-10-16: three parent spaces left open on 0.2.8).
+
 ## [0.2.8] - 2026-10-15
 
 ### Added

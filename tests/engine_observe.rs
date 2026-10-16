@@ -49,6 +49,7 @@ fn projection_table_7_6_every_row() {
                 AgentStatus::Idle,
                 &[],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -66,6 +67,7 @@ fn projection_table_7_6_every_row() {
                 AgentStatus::Blocked,
                 &["approval".into()],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -84,6 +86,7 @@ fn projection_table_7_6_every_row() {
                 AgentStatus::Unknown,
                 &[],
                 Some("exited"),
+                None,
             )
         })
         .unwrap();
@@ -100,6 +103,7 @@ fn projection_table_7_6_every_row() {
                 &dispatch,
                 AgentStatus::Unknown,
                 &[],
+                None,
                 None,
             )
         })
@@ -195,6 +199,7 @@ fn record(env: &TestEnv, dispatch: &DispatchId, presence: Option<&str>) {
                 AgentStatus::Idle,
                 &[],
                 presence,
+                None,
             )
         })
         .unwrap();
@@ -230,6 +235,7 @@ fn herdr_state_proves_presence() {
                 AgentStatus::Unknown,
                 &[],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -255,6 +261,7 @@ fn recorded_ending_beats_exit_observation() {
                 AgentStatus::Done,
                 &[],
                 Some("exited"),
+                None,
             )
         })
         .unwrap();
@@ -275,6 +282,7 @@ fn outcome_unknown_when_exited_without_ending() {
                 AgentStatus::Done,
                 &[],
                 Some("exited"),
+                None,
             )
         })
         .unwrap();
@@ -314,6 +322,7 @@ fn stale_after_10_minutes_is_warning_only() {
                 AgentStatus::Idle,
                 &[],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -353,6 +362,7 @@ fn observe_present(env: &TestEnv, dispatch: &DispatchId) {
                 AgentStatus::Idle,
                 &[],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -493,4 +503,311 @@ fn a_send_to_the_dispatch_clears_guidance_for_a_pending_question() {
             .categories
             .contains(&"guidance".to_string())
     );
+}
+
+const PROMPT_SCREEN: &str = "Allow edits?\nDo you want to proceed?\n 1. Yes\n 2. No\n\n\n";
+
+fn record_state(
+    env: &TestEnv,
+    dispatch: &DispatchId,
+    status: AgentStatus,
+    needs_input: &[&str],
+    presence: Option<&str>,
+    screen: Option<&str>,
+) -> Option<observe::PromptEscalation> {
+    let needs_input: Vec<String> = needs_input.iter().map(|reason| (*reason).into()).collect();
+    env.engine
+        .store
+        .tx(|tx| {
+            observe::record_herdr_state(
+                tx,
+                Clock::now(env.clock.as_ref()),
+                dispatch,
+                status,
+                &needs_input,
+                presence,
+                screen,
+            )
+        })
+        .unwrap()
+}
+
+fn run_mail(env: &TestEnv) -> Vec<pod::store::rows::messages::MessageRow> {
+    env.engine
+        .store
+        .read(|tx| {
+            pod::store::rows::messages::select(tx, &format!("run:{RUN}"), &[], false, 100, false)
+        })
+        .unwrap()
+}
+
+fn acknowledge_run_mail(env: &TestEnv) {
+    env.engine
+        .store
+        .tx(|tx| {
+            for message in pod::store::rows::messages::select(
+                tx,
+                &format!("run:{RUN}"),
+                &[],
+                true,
+                100,
+                false,
+            )? {
+                pod::store::rows::messages::mark_read(
+                    tx,
+                    &message.id,
+                    Clock::now(env.clock.as_ref()),
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn give_pane(env: &TestEnv, pane: &str) {
+    env.engine
+        .store
+        .tx(|tx| {
+            tx.0.execute(
+                "UPDATE workers SET pane_id = ?1 WHERE dispatch_id = ?2",
+                (pane, DISPATCH),
+            )?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+/// Seen live 2026-10-16: a worker sat on a model-switch selector for ten
+/// minutes while its coordinator's wait loop discarded the empty return. A
+/// blocked prompt is mail from pod, once per blocked episode (spec 7.6).
+#[test]
+fn a_worker_that_blocks_on_a_prompt_is_escalated_once_per_episode() {
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    give_pane(&env, "pane-7");
+
+    let working = record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Working,
+        &[],
+        Some("present"),
+        None,
+    );
+    assert!(working.is_none());
+    assert!(run_mail(&env).is_empty());
+
+    // herdr's bare `blocked` status counts as input; the screen rides along.
+    let report = record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &[],
+        Some("present"),
+        Some(PROMPT_SCREEN),
+    )
+    .expect("the first blocked observation stores an escalation");
+    let mail = run_mail(&env);
+    assert_eq!(mail.len(), 1);
+    assert_eq!(report.message_id, mail[0].id);
+    assert_eq!(report.run_id.as_str(), RUN);
+    let message = &mail[0];
+    assert_eq!(message.r#type, "escalation");
+    assert_eq!(message.from_handle, "pod");
+    assert_eq!(message.priority, "high");
+    assert_eq!(message.sender_terminal_id, None);
+    assert!(!message.read);
+    assert_eq!(
+        message.subject,
+        "Blocked on a prompt: worker (input)".to_owned()
+    );
+    let payload = message.payload.as_ref().unwrap();
+    assert_eq!(payload["dispatch_id"], DISPATCH);
+    assert_eq!(payload["task_id"], TASK);
+    assert_eq!(payload["reason"], "input");
+    assert_eq!(payload["source"], "pod");
+    assert_eq!(payload["needs_input"], serde_json::json!(["blocked"]));
+    assert_eq!(message.evidence.as_deref(), Some("pane:pane-7"));
+    let recommendation = message.recommendation.as_deref().unwrap();
+    assert!(recommendation.contains("worker-read"), "{recommendation}");
+    assert!(recommendation.contains("worker-stop"), "{recommendation}");
+    let body = message.body.as_deref().unwrap();
+    assert!(
+        body.starts_with("Worker worker is waiting on a prompt"),
+        "{body}"
+    );
+    assert!(body.contains("Do you want to proceed?"), "{body}");
+    assert!(
+        body.ends_with(" 2. No"),
+        "trailing blank lines are trimmed: {body:?}"
+    );
+
+    // The same blocked episode, seen again, stores nothing more.
+    for _ in 0..2 {
+        let again = record_state(
+            &env,
+            &dispatch,
+            AgentStatus::Blocked,
+            &["blocked"],
+            Some("present"),
+            Some(PROMPT_SCREEN),
+        );
+        assert!(again.is_none());
+    }
+    assert_eq!(run_mail(&env).len(), 1);
+
+    // A later block while the first escalation is still unread adds nothing.
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Working,
+        &[],
+        Some("present"),
+        None,
+    );
+    let unread = record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &[],
+        Some("present"),
+        None,
+    );
+    assert!(unread.is_none());
+    assert_eq!(run_mail(&env).len(), 1);
+
+    // Once the coordinator has read it, the next episode is a new escalation.
+    acknowledge_run_mail(&env);
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Working,
+        &[],
+        Some("present"),
+        None,
+    );
+    let second = record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &[],
+        Some("present"),
+        None,
+    );
+    assert!(second.is_some());
+    let mail = run_mail(&env);
+    assert_eq!(mail.len(), 2);
+    // Without a screen read the body is the first line alone.
+    assert_eq!(mail[1].body.as_deref().unwrap().lines().count(), 1);
+
+    // An approval prompt names its reason.
+    acknowledge_run_mail(&env);
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Working,
+        &[],
+        Some("present"),
+        None,
+    );
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &["approval"],
+        Some("present"),
+        None,
+    )
+    .expect("an approval prompt is escalated");
+    let mail = run_mail(&env);
+    assert_eq!(mail.len(), 3);
+    assert_eq!(mail[2].subject, "Blocked on a prompt: worker (approval)");
+    assert_eq!(mail[2].payload.as_ref().unwrap()["reason"], "approval");
+    assert_eq!(
+        mail[2].payload.as_ref().unwrap()["needs_input"],
+        serde_json::json!(["approval"])
+    );
+
+    // A settled Dispatch has nothing left to escalate.
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    env.engine
+        .store
+        .tx(|tx| {
+            tx.0.execute(
+                "UPDATE dispatches SET status = 'completed' WHERE id = ?1",
+                [DISPATCH],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let settled = record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &["approval"],
+        Some("present"),
+        None,
+    );
+    assert!(settled.is_none());
+    assert!(run_mail(&env).is_empty());
+
+    // Unproven presence is no evidence that anyone is being asked.
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    let unproven = record_state(&env, &dispatch, AgentStatus::Blocked, &[], None, None);
+    assert!(unproven.is_none());
+    assert!(run_mail(&env).is_empty());
+}
+
+#[test]
+fn a_long_screen_is_cut_to_forty_lines_of_two_hundred_characters() {
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    let screen: String = (1..=60)
+        .map(|n| format!("line {n} {}\n", "x".repeat(300)))
+        .collect();
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &[],
+        Some("present"),
+        Some(&screen),
+    )
+    .unwrap();
+    let body = run_mail(&env)[0].body.clone().unwrap();
+    let lines: Vec<&str> = body.lines().skip(1).collect();
+    assert_eq!(lines.len(), 40);
+    assert!(lines[0].starts_with("line 21 "), "{}", lines[0]);
+    assert!(lines[39].starts_with("line 60 "), "{}", lines[39]);
+    assert!(lines.iter().all(|line| line.chars().count() == 200));
+}
+
+/// The live `input` category already covers the stuck state and clears when
+/// the worker moves on, so pod's own escalation must not also go stale into
+/// `guidance` after five minutes.
+#[test]
+fn pod_escalations_never_become_guidance() {
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    record_state(
+        &env,
+        &dispatch,
+        AgentStatus::Blocked,
+        &[],
+        Some("present"),
+        Some(PROMPT_SCREEN),
+    )
+    .unwrap();
+    env.clock.advance(Duration::from_secs(6 * 60));
+    let value = project(&env, &dispatch);
+    assert!(
+        !value.attention.categories.contains(&"guidance".to_string()),
+        "{:?}",
+        value.attention.categories
+    );
+    assert!(value.attention.categories.contains(&"input".to_string()));
+    assert!(value.attention.requires_action);
+    assert_eq!(value.next_action.kind, "worker-read");
 }

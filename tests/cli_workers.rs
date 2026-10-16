@@ -354,3 +354,68 @@ fn cli_failed_start_exits_1_with_failure_receipt_and_stop_release_shapes() {
     assert!(released["worker"].get("terminal_state").is_none());
     assert!(released["closedTabs"].is_array() && released["leftAlone"].is_array());
 }
+
+/// `pod status` lists the workers that look stuck; a live agent waiting on a
+/// person comes first, then a silent one, then one idle with an open Dispatch.
+#[test]
+fn status_reports_a_worker_blocked_on_a_prompt_as_stalled() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "stalled", "--json"])
+        .assert()
+        .success();
+    let started = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "stuck work",
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    let dispatch = started["dispatchId"].as_str().unwrap().to_owned();
+
+    let observe = |seconds: i64, activity: &str, needs_input: &str| {
+        let at = (chrono::Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339();
+        let db = rusqlite::Connection::open(&env.engine.paths.db_path).unwrap();
+        db.execute(
+            "INSERT INTO observations (dispatch_id, liveness, activity, presence, needs_input, evidence_source, observed_at) VALUES (?1, 'live', ?2, 'present', ?3, 'herdr_state', ?4)",
+            (&dispatch, activity, needs_input, &at),
+        )
+        .unwrap();
+    };
+    let stalled = || -> Vec<Value> {
+        let status = env
+            .pod(Some("term-coord"))
+            .args(["status", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let status: Value = serde_json::from_slice(&status).unwrap();
+        status["workers"]["stalled"].as_array().unwrap().clone()
+    };
+
+    observe(5, "idle_at_prompt", r#"{"count":1,"reasons":["blocked"]}"#);
+    let blocked = stalled();
+    assert_eq!(blocked.len(), 1, "{blocked:?}");
+    assert_eq!(blocked[0]["dispatchId"], dispatch.as_str());
+    assert_eq!(blocked[0]["reason"], "blocked_on_prompt");
+    assert_eq!(blocked[0]["nextAction"]["kind"], "worker-read");
+
+    observe(10, "idle_at_prompt", r#"{"count":0,"reasons":[]}"#);
+    let idle = stalled();
+    assert_eq!(idle.len(), 1, "{idle:?}");
+    assert_eq!(idle[0]["reason"], "idle_with_open_dispatch");
+
+    observe(15, "working", r#"{"count":0,"reasons":[]}"#);
+    assert!(stalled().is_empty());
+}

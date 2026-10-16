@@ -1,6 +1,6 @@
 mod support;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pod::ErrorCode;
 use pod::config::RepoConfig;
@@ -1174,12 +1174,8 @@ fn reuse_rejects_worktree_and_existing_worktrees_get_a_new_tab() {
     assert_eq!(receipt.state, "ready");
     let worker = worker_row(&env, &receipt.dispatch_id);
     // worktree.open's own tab may belong to the user; the worker gets its own.
-    assert!(
-        env.herdr
-            .calls()
-            .iter()
-            .any(|c| c.starts_with("tab_create:workspace_1:"))
-    );
+    let opened = format!("tab_create:{}:", worker.workspace_id.as_deref().unwrap());
+    assert!(env.herdr.calls().iter().any(|c| c.starts_with(&opened)));
     settle(&env, &receipt.dispatch_id);
     let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
     assert_eq!(released.closed_tabs, [worker.tab_id.unwrap()]);
@@ -1781,6 +1777,7 @@ fn worker_list_100_workers_under_100ms() {
                         pod::herdr::AgentStatus::Working,
                         &[],
                         Some("present"),
+                        None,
                     )?;
                 }
             }
@@ -2507,8 +2504,11 @@ fn release_closes_the_spaces_herdr_opened_for_the_placement() {
     settle(&env, &receipt.dispatch_id);
     let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
     assert_eq!(released.worker.terminal_state, "released");
-    assert_eq!(released.closed_workspaces, opened);
-    assert_eq!(env.herdr.closed_workspaces(), opened);
+    // The worktree's own space goes first; herdr would refuse the parent
+    // while it was open.
+    let closing: Vec<String> = opened.iter().rev().cloned().collect();
+    assert_eq!(released.closed_workspaces, closing);
+    assert_eq!(env.herdr.closed_workspaces(), closing);
 
     // A parent space that was open before the start is not herdr's to undo.
     let (env, run, task) = seeded();
@@ -2542,6 +2542,223 @@ fn release_closes_the_spaces_herdr_opened_for_the_placement() {
     assert_eq!(released.worker.terminal_state, "released");
     assert!(released.closed_workspaces.is_empty());
     assert!(env.herdr.closed_workspaces().is_empty());
+}
+
+/// A second linked worktree of the repository `linked_worktree` made.
+fn second_linked_worktree(env: &TestEnv) -> PathBuf {
+    let linked = env.tmp.path().join("api-service-wt2");
+    std::fs::create_dir_all(linked.join(".git")).unwrap();
+    env.herdr.add_worktree(&linked, "refs/heads/second");
+    linked
+}
+
+/// Starts a worker on the linked worktree `path` for a new Task of the Run.
+fn start_on(env: &TestEnv, run: &RunId, spec: &str, path: &Path) -> lifecycle::StartReceipt {
+    let task = new_task(env, run, spec);
+    let mut start = input(task, run.clone());
+    start.worktree = Worktree::Path(path.to_path_buf());
+    lifecycle::worker_start(&env.engine, start).unwrap()
+}
+
+/// What the `worker.released` event of `dispatch` recorded:
+/// `(closed_workspaces, left_alone)`.
+fn released_event_lists(
+    env: &TestEnv,
+    run: &RunId,
+    dispatch: &DispatchId,
+) -> (Vec<String>, Vec<String>) {
+    let events = env
+        .engine
+        .store
+        .read(|tx| pod::store::rows::events::list(tx, run))
+        .unwrap();
+    let event = events
+        .iter()
+        .find(|event| {
+            event.r#type == "worker.released" && event.dispatch_id.as_ref() == Some(dispatch)
+        })
+        .expect("a worker.released event");
+    let detail = event.detail.as_ref().unwrap();
+    let list = |key: &str| -> Vec<String> { serde_json::from_value(detail[key].clone()).unwrap() };
+    (list("closed_workspaces"), list("left_alone"))
+}
+
+/// Seen live 2026-10-16: herdr refuses to close a repository's parent space
+/// while a linked worktree space of it is open, and the worker's own space was
+/// still open when release tried the parent first. Three idle shells were left
+/// behind. The worktree's space closes first and the parent after it.
+#[test]
+fn release_closes_the_worktree_space_before_the_parent() {
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let mut start = input(task, run.clone());
+    start.worktree = Worktree::Path(linked);
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    let opened = opened_spaces(&env, &receipt.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    let (parent, own) = (opened[0].clone(), opened[1].clone());
+    assert!(parent.starts_with("ws_parent_"), "{parent}");
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &receipt.dispatch_id);
+    let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.closed_workspaces, [own.clone(), parent.clone()]);
+    assert!(released.left_alone.is_empty(), "{:?}", released.left_alone);
+    assert_eq!(env.herdr.closed_workspaces(), [own.clone(), parent.clone()]);
+    assert!(
+        !env.herdr
+            .calls()
+            .iter()
+            .any(|call| call.starts_with("workspace_close_refused:")),
+        "{:?}",
+        env.herdr.calls()
+    );
+    let (closed, left) = released_event_lists(&env, &run, &receipt.dispatch_id);
+    assert_eq!(closed, [own, parent]);
+    assert!(left.is_empty());
+}
+
+/// The parent space stays while another worker's worktree space of the same
+/// repository is open; herdr's refusal is listed, not warned, and the release
+/// that closes the last worktree space closes the parent too.
+#[test]
+fn a_parent_space_still_used_by_another_worktree_closes_at_the_last_release() {
+    let (env, run, _) = seeded();
+    let (_, first) = linked_worktree(&env);
+    let second = second_linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &first);
+    let two = start_on(&env, &run, "second", &second);
+    let opened_one = opened_spaces(&env, &one.dispatch_id);
+    let opened_two = opened_spaces(&env, &two.dispatch_id);
+    // The second start found the parent already open: it owns only its own.
+    assert_eq!(opened_one.len(), 2, "{opened_one:?}");
+    assert_eq!(opened_two.len(), 1, "{opened_two:?}");
+    let (parent, own_one, own_two) = (
+        opened_one[0].clone(),
+        opened_one[1].clone(),
+        opened_two[0].clone(),
+    );
+    assert_ne!(own_one, own_two);
+    for space in [&parent, &own_one, &own_two] {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &one.dispatch_id);
+    settle(&env, &two.dispatch_id);
+
+    let released = lifecycle::release(&env.engine, &one.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.closed_workspaces, std::slice::from_ref(&own_one));
+    assert_eq!(
+        released.left_alone,
+        [format!("workspace_group_open:{parent}")]
+    );
+    assert_eq!(
+        env.herdr.closed_workspaces(),
+        std::slice::from_ref(&own_one)
+    );
+    assert!(
+        env.herdr
+            .calls()
+            .contains(&format!("workspace_close_refused:{parent}"))
+    );
+    let (closed, left) = released_event_lists(&env, &run, &one.dispatch_id);
+    assert_eq!(closed, std::slice::from_ref(&own_one));
+    assert_eq!(left, [format!("workspace_group_open:{parent}")]);
+
+    // A person has since opened a second tab in the parent: it stays.
+    env.herdr.set_workspace_shape(&parent, 2, 1, "unknown");
+    let kept = lifecycle::release(&env.engine, &two.dispatch_id).unwrap();
+    assert_eq!(kept.closed_workspaces, std::slice::from_ref(&own_two));
+    assert!(kept.left_alone.is_empty(), "{:?}", kept.left_alone);
+    assert_eq!(
+        env.herdr.closed_workspaces(),
+        [own_one.clone(), own_two.clone()]
+    );
+
+    // Plain again, a later release in the Run retries the parent the first
+    // worker recorded; the worktree spaces are gone, so herdr closes it.
+    env.herdr.set_workspace_shape(&parent, 1, 1, "unknown");
+    let third = start_on(&env, &run, "third", &second);
+    let third_space = opened_spaces(&env, &third.dispatch_id);
+    assert_eq!(third_space.len(), 1, "{third_space:?}");
+    env.herdr
+        .set_workspace_shape(&third_space[0], 1, 1, "unknown");
+    settle(&env, &third.dispatch_id);
+    let last = lifecycle::release(&env.engine, &third.dispatch_id).unwrap();
+    assert_eq!(
+        last.closed_workspaces,
+        [third_space[0].clone(), parent.clone()]
+    );
+    assert!(last.left_alone.is_empty(), "{:?}", last.left_alone);
+    let (closed, left) = released_event_lists(&env, &run, &third.dispatch_id);
+    assert_eq!(closed, [third_space[0].clone(), parent.clone()]);
+    assert!(left.is_empty());
+    assert_eq!(
+        env.herdr.closed_workspaces(),
+        [own_one, own_two, third_space[0].clone(), parent]
+    );
+}
+
+/// The second of two workers releases last: its own space goes, then the
+/// parent the first worker's start had opened.
+#[test]
+fn the_last_release_of_two_workers_closes_its_space_and_then_the_parent() {
+    let (env, run, _) = seeded();
+    let (_, first) = linked_worktree(&env);
+    let second = second_linked_worktree(&env);
+    let one = start_on(&env, &run, "first", &first);
+    let two = start_on(&env, &run, "second", &second);
+    let parent = opened_spaces(&env, &one.dispatch_id)[0].clone();
+    let own_one = opened_spaces(&env, &one.dispatch_id)[1].clone();
+    let own_two = opened_spaces(&env, &two.dispatch_id)[0].clone();
+    for space in [&parent, &own_one, &own_two] {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &one.dispatch_id);
+    settle(&env, &two.dispatch_id);
+    lifecycle::release(&env.engine, &one.dispatch_id).unwrap();
+    let last = lifecycle::release(&env.engine, &two.dispatch_id).unwrap();
+    assert_eq!(last.closed_workspaces, [own_two.clone(), parent.clone()]);
+    assert!(last.left_alone.is_empty(), "{:?}", last.left_alone);
+    assert_eq!(env.herdr.closed_workspaces(), [own_one, own_two, parent]);
+}
+
+/// A parent space a person opened before the start is not pod's to close, at
+/// any release.
+#[test]
+fn a_parent_space_a_person_opened_is_never_closed_by_a_release() {
+    let (env, run, _) = seeded();
+    let (main, first) = linked_worktree(&env);
+    let second = second_linked_worktree(&env);
+    env.herdr.add_folder_workspace(&main, "ws_user");
+    env.herdr.set_workspace_shape("ws_user", 1, 1, "unknown");
+    let one = start_on(&env, &run, "first", &first);
+    let two = start_on(&env, &run, "second", &second);
+    let own_one = opened_spaces(&env, &one.dispatch_id);
+    let own_two = opened_spaces(&env, &two.dispatch_id);
+    assert_eq!((own_one.len(), own_two.len()), (1, 1));
+    for space in own_one.iter().chain(&own_two) {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &one.dispatch_id);
+    settle(&env, &two.dispatch_id);
+    let first_release = lifecycle::release(&env.engine, &one.dispatch_id).unwrap();
+    assert_eq!(first_release.closed_workspaces, own_one);
+    let second_release = lifecycle::release(&env.engine, &two.dispatch_id).unwrap();
+    assert_eq!(second_release.closed_workspaces, own_two);
+    assert!(second_release.left_alone.is_empty());
+    let closed = env.herdr.closed_workspaces();
+    assert!(!closed.contains(&"ws_user".to_owned()), "{closed:?}");
+    assert!(
+        !env.herdr
+            .calls()
+            .iter()
+            .any(|call| call.contains("ws_user") && call.starts_with("workspace_close")),
+        "{:?}",
+        env.herdr.calls()
+    );
 }
 
 /// The worker_done a worker would have sent, in the Run mailbox.

@@ -63,7 +63,8 @@ pub fn startup(engine: &Engine) -> Result<ReconcileReport> {
             report.unproven += 1;
             (AgentStatus::Unknown, Vec::new(), None)
         };
-        engine.store.tx(|tx| {
+        let screen = blocked_screen(engine, &pane_id, &status);
+        let escalation = engine.store.tx(|tx| {
             observe::record_herdr_state(
                 tx,
                 engine.clock.now(),
@@ -71,8 +72,10 @@ pub fn startup(engine: &Engine) -> Result<ReconcileReport> {
                 status,
                 &needs_input,
                 presence,
+                screen.as_deref(),
             )
         })?;
+        announce(engine, escalation)?;
     }
     Ok(report)
 }
@@ -114,7 +117,8 @@ fn observe_event(engine: &Engine, event: HerdrEvent, wake_now: bool) -> Result<(
         }
     };
     let closed = presence == "absent";
-    engine.store.tx(|tx| {
+    let screen = blocked_screen(engine, &pane_id, &status);
+    let escalation = engine.store.tx(|tx| {
         // herdr reports no user input on a pane (protocol 22), so a close pod
         // did not make is the takeover it can see (spec 7.4).
         if closed {
@@ -127,14 +131,42 @@ fn observe_event(engine: &Engine, event: HerdrEvent, wake_now: bool) -> Result<(
             status,
             &needs_input,
             Some(presence),
+            screen.as_deref(),
         )
     })?;
+    announce(engine, escalation)?;
     if idle {
         wake::note_screen(engine, &pane_id);
         if wake_now {
             let mailbox = format!("dispatch:{dispatch}");
             wake::on_trigger(engine, &mailbox, wake::Trigger::IdleHook)?;
         }
+    }
+    Ok(())
+}
+
+/// The worker pane's last lines, read only for a `blocked` status: they go
+/// into the escalation pod stores for the prompt (spec 7.6). A read that
+/// fails costs the screen text and never the observation.
+pub(crate) fn blocked_screen(
+    engine: &Engine,
+    pane_id: &str,
+    status: &AgentStatus,
+) -> Option<String> {
+    if !matches!(status, AgentStatus::Blocked) {
+        return None;
+    }
+    engine.herdr.pane_read(pane_id, 40).ok()
+}
+
+/// Runs the commit hook for the mail an observation stored, exactly as a
+/// sent message does: board, sidebar, and the wake ladder's own checks.
+pub(crate) fn announce(
+    engine: &Engine,
+    escalation: Option<observe::PromptEscalation>,
+) -> Result<()> {
+    if let Some(report) = escalation {
+        engine.after_commit(&report.run_id, &[format!("run:{}", report.run_id)])?;
     }
     Ok(())
 }

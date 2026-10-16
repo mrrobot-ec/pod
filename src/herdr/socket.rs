@@ -291,13 +291,18 @@ impl Herdr for SocketHerdr {
         Ok(())
     }
 
-    fn workspace_close(&self, workspace_id: &str) -> Result<()> {
-        self.expected(
+    fn workspace_close(&self, workspace_id: &str) -> Result<bool> {
+        match self.request_reply(
             "workspace.close",
             json!({"workspace_id": workspace_id}),
-            "ok",
-        )?;
-        Ok(())
+            REQUEST_TIMEOUT,
+        )? {
+            WireReply::Success(result) => {
+                expect_result_type("workspace.close", result, "ok").map(|_| true)
+            }
+            WireReply::Error(error) if error.code == "workspace_group_close_required" => Ok(false),
+            WireReply::Error(error) => Err(herdr_error(error.message)),
+        }
     }
 
     fn tab_rename(&self, tab_id: &str, label: &str) -> Result<()> {

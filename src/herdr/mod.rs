@@ -170,7 +170,10 @@ pub trait Herdr: Send + Sync {
     fn tab_pane_count(&self, tab_id: &str) -> Result<Option<u32>>;
     fn workspace_get(&self, workspace_id: &str) -> Result<Option<WorkspaceInfo>>;
     /// Closes a workspace (`workspace.close`), with every tab and pane in it.
-    fn workspace_close(&self, workspace_id: &str) -> Result<()>;
+    /// `Ok(false)` means herdr refused because linked worktree workspaces of
+    /// the repository are still open (`workspace_group_close_required`); pod
+    /// never passes `close_group`, so nothing was closed.
+    fn workspace_close(&self, workspace_id: &str) -> Result<bool>;
     /// The workspace of a pane whose cwd is exactly `folder`, if any
     /// (herdr `pane.list`).
     fn workspace_for_folder(&self, folder: &Path) -> Result<Option<String>>;

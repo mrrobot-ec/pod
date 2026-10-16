@@ -14,7 +14,7 @@ One entry per row of the failure table in spec section 13, then entries for spec
 
 ### Agent stuck at an approval or question prompt
 
-**Symptom:** Attention `approval` or `input`, `requiresAction: true`, liveness `live`, `needsInput.count` above 0.
+**Symptom:** Attention `approval` or `input`, `requiresAction: true`, liveness `live`, `needsInput.count` above 0. pod also stores one `escalation` from `pod` in the Run mailbox for the blocked episode (subject `Blocked on a prompt: <handle> (<reason>)`, evidence `pane:<id>`, the last screen lines in the body), so a `check --wait` that asks for `escalation` returns with it and the Delivery replays until you acknowledge it. `pod status` lists the worker under `workers.stalled` with reason `blocked_on_prompt`.
 
 **Cause:** The agent's own prompt is waiting for a person. pod never answers it.
 
@@ -163,6 +163,14 @@ See [`store_access_denied`](#store_access_denied) below.
 **Symptom:** `pod board` reports `"dagr": "absent"` with an install command, and `pod doctor` warns that herdr-dagr is not found.
 
 **Fix:** Install herdr-dagr with the command `pod board` prints, or ignore it. The board is optional; every fact is available through `worker-list`, `task-list`, `inbox`, and `log`. The board files in `<state dir>/<session>/runs/<run_id>/run.json` are written whether or not dagr is installed. When dagr is present but `pod board` reports `opened: false`, its `warnings` say why; run `DAGR_RUN=<boardFile> dagr` in any pane yourself.
+
+### A repository's parent space stays open after release
+
+**Symptom:** After `worker-release` (or an acknowledged `worker_done`) a repository's parent space, with one idle shell, is still open, and the receipt lists `workspace_group_open:<id>` in `leftAlone`.
+
+**Cause:** herdr refuses to close a repository's parent space while another worktree space of that repository is open (`workspace_group_close_required`), and pod never closes a group. The worker's own worktree space closes first, but a second worker's space keeps the parent in use.
+
+**Fix:** None needed. Every later release in the Run (and `worker-gc`) retries the parent spaces that released workers recorded, and closes one as soon as herdr allows it, when it still holds only its shell and no pod worker. A parent space a person opened, or used since, is never closed by pod; close it yourself.
 
 ### A nudge never arrives
 

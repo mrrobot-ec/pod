@@ -405,8 +405,14 @@ The worker's tab is labelled `<handle> · <task title>` and relabelled on reuse.
   worktree action when none is open, and an open may also open the
   worktree's own space. pod records the spaces an open or create left behind
   on the worker, and release closes each one that still holds only that shell
-  (one tab, one pane, no agent) and no other pod worker. A refused close is a
-  warning, never a failed release.
+  (one tab, one pane, no agent) and no other pod worker, in reverse order:
+  the worktree's own space first, the parent after it. herdr refuses to close
+  a parent while another worktree space of the repository is open
+  (`workspace_group_close_required`); the refusal is not a failure, it shows
+  in `leftAlone` as `workspace_group_open:<id>`, and every later release in
+  the Run retries the parent spaces that released workers recorded. pod never
+  closes a group. Any other refused close is a warning, never a failed
+  release.
 - A fresh worker means a fresh agent pane, not a new worktree. Create a worktree
   only when asked or when a concrete filesystem conflict makes sharing unsafe.
 
@@ -431,14 +437,19 @@ release.
     new Dispatch and the worker that last held the pane is released.
   - **Retain:** `worker-retain` - keep the pane, with a recorded reason.
   - **Release:** `worker-release` - archive the final screen text, then close
-    the worker's tab only if pod created it. Reused, pre-existing, setup,
-    coordinator, active, user-taken-over, and unproven panes are left alone.
-    Safe to call again.
+    the worker's tab only if pod created it, then the spaces herdr opened for
+    it: the worktree's space first, the parent after it (7.2). A parent herdr
+    refuses because another worktree space of the repository is still open is
+    listed in `leftAlone` as `workspace_group_open:<id>` and retried by every
+    later release in the Run. Reused, pre-existing, setup, coordinator,
+    active, user-taken-over, and unproven panes are left alone. Safe to call
+    again.
 - `worker-stop` fences the Dispatch and closes only the exact supervised agent
   pane. `worker-abandon` fences the Dispatch and touches no process.
 - `worker-gc` releases every `reclaimable` worker of the Run (and retries
   `release_pending` and `release_unknown`) under the release rules in one
-  call; retained and active workers are kept and listed with their reason.
+  call, including the parent-space retry above; retained and active workers
+  are kept and listed with their reason.
 - If the user closes a worker pane, pod treats the pane as user-owned from
   then on. A pane a person types into is left alone, not taken over: the
   screen read before a prompt or paste (8.2) finds text on the input line that
@@ -488,8 +499,9 @@ Evidence comes from two sources, and each observation row records which
 (`evidence_source`): the worker's own reports (`heartbeat`, `worker_done`,
 `ask`), which prove activity but never presence, and herdr's agent state with
 the plugin event hooks, which is authoritative for presence. pod does not read
-screen text to infer liveness in version 1; its one screen read, before a prompt
-or paste, only looks for a person typing (7.4). Unproven activity is `unknown`;
+screen text to infer liveness in version 1; its screen read before a prompt
+or paste only looks for a person typing (7.4), and the last lines it copies
+into the escalation for a blocked worker (below) prove nothing. Unproven activity is `unknown`;
 unproven presence is null, as in the axis table. Neither is guessed around.
 
 `liveness` is the fleet verdict derived from the axes, and is what every rule
@@ -498,12 +510,31 @@ in this document means by `live`, `exited`, and `unverifiable`:
 | Evidence | `liveness` | Attention |
 |---|---|---|
 | `presence: present` (including unknown activity) | `live` | `approval` or `input`, `requiresAction: true`, when `needs_input.count > 0`; otherwise none |
+| herdr reports `blocked` on an active Dispatch (a permission prompt, a selector, a login banner) | `live` | `approval` or `input` as above, and pod stores one `escalation` from `pod` in the Run mailbox for each blocked episode (below) |
 | `presence: exited` or `absent` (agent gone, pane exited or confirmed closed) | `exited` | `failure`, `requiresAction: true`, only if the attempt is still unsettled |
 | `presence: null`: process presence cannot be established (herdr unreachable, unknown presence, no observation) | `unverifiable` (with `reason`) | `unverifiable` |
 | no heartbeat for 10 minutes | unchanged | `stale` (warning only) |
 | wake ladder exhausted (8.2) | unchanged | `unreachable`, `requiresAction: true` |
 | the screen read before a prompt or paste found text a person typed (7.4) | unchanged | `interruption`, `requiresAction: false`; `nextAction` is `worker-read`; clears when a later read finds the input bare |
 | a `question` or `escalation` from this Dispatch has gone 5 minutes without a `reply` or a `send` to the Dispatch | unchanged | `guidance`, `requiresAction: true`; `nextAction` is `reply --id <message>` for a question and `worker-read` for an escalation; clears on the reply |
+
+The `escalation` pod stores for a blocked worker is how the prompt reaches
+a coordinator that looks at mail and not at attention. It is stored in the
+transaction that records the first `blocked` observation of an episode (the
+latest earlier herdr observation of the Dispatch had no `needs_input`) for a
+`present` agent whose Dispatch is still `pending` or `dispatched`, and only
+while pod has no unread escalation for that Dispatch, so a hook and a waiter
+recording one event store a single message. Its sender is `pod`, its subject
+`Blocked on a prompt: <handle> (<approval|input>)`, its payload carries
+`dispatch_id`, `task_id`, `reason`, `needs_input`, and `source: "pod"`, its
+`evidence` is `pane:<id>`, its `recommendation` is `worker-read` then answer
+the prompt as a person would, or `worker-stop` and restart, and its body is
+one line plus the pane's last lines (at most 40, each cut to 200
+characters). Being mail, it wakes `check --wait`, replays until acknowledged,
+and is nudged to the coordinator pane by the wake ladder (8.2). pod never
+answers the prompt. pod's own escalations never become `guidance`: the live
+`input` or `approval` category already covers the stuck state and clears when
+the worker moves on. A later block starts a new episode and a new escalation.
 
 Each `worker-list` row carries `projection.liveness`, `projection.activity`,
 `projection.presence`, `projection.needsInput`,
@@ -681,7 +712,7 @@ A nudge is attention only. It proves nothing about reading.
 |---|---|
 | `worker_done` | Ends the Dispatch and updates the Task under 7.5; records the closure reason; promotes dependants on success. |
 | `heartbeat` | Updates `last_heartbeat_at` and `last_phase` for the active Dispatch only. |
-| `escalation`, `decision_gate` | Must come from the Dispatch's owner; the dispatch ID is stamped into the payload. No automatic state change. `escalation` must carry `--evidence` and `--recommendation` (9.1). |
+| `escalation`, `decision_gate` | Must come from the Dispatch's owner, or, for an `escalation`, be stored by pod for a worker blocked on a prompt (7.6); the dispatch ID is stamped into the payload. No automatic state change. `escalation` must carry `--evidence` and `--recommendation` (9.1). |
 | `question` | Created by `ask`. |
 | `status`, `merge_ready`, `handoff`, `dispatch` | Labels only. |
 
@@ -937,7 +968,7 @@ Rule: act on proof, never on absence.
 | Situation | Behaviour |
 |---|---|
 | Agent exits without a recorded ending | Observation `exited`; Dispatch `outcome_unknown` in the projection; next action: inspect, then `worker-stop` or `worker-abandon`. |
-| Agent stuck at an approval or question prompt | Attention `approval`/`input` (herdr's bare `blocked` status counts as `input`). pod never answers the prompt. A `check --wait` in progress returns with `wokeOn: attention`. |
+| Agent stuck at an approval or question prompt | Attention `approval`/`input` (herdr's bare `blocked` status counts as `input`), and one `escalation` from `pod` in the Run mailbox (7.6), so a `check --wait` on `escalation` returns with it and it replays until acknowledged. pod never answers the prompt. A `check --wait` that does not ask for `escalation` returns with `wokeOn: attention`. |
 | Worker blocked on a missing fact or ambiguity | Worker asks the specialist (`ask --to`) or escalates with evidence; the coordinator routes per 9.1. Never left to spin. |
 | Coordinator cannot decide | `gate-create --for user`; inspect with `gate-list` and wait on the resolution message `decision_gate`; only a Task-linked gate has a board card. |
 | Worker silent | `stale` warning after 10 minutes. Never auto-failed. |

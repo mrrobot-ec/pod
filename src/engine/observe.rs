@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{PodError, Result};
 use crate::herdr::AgentStatus;
-use crate::ids::{DispatchId, RunId};
+use crate::ids::{DispatchId, MessageId, RunId};
 use crate::store::Tx;
-use crate::store::rows::{dispatches, observations, workers};
+use crate::store::rows::{dispatches, messages, observations, workers};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NeedsInput {
@@ -163,6 +163,23 @@ pub fn record_user_typing(
     )
 }
 
+/// The mail `record_herdr_state` stored for a worker that began waiting on a
+/// prompt; the caller runs the commit hook for its Run (spec 7.6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptEscalation {
+    pub run_id: RunId,
+    pub message_id: MessageId,
+}
+
+/// Lines of the worker's screen an escalation carries, and the width each
+/// line is cut to.
+const SCREEN_LINES: usize = 40;
+const SCREEN_WIDTH: usize = 200;
+
+/// Records herdr's state for the Dispatch. `screen` is the worker pane's last
+/// lines, which a caller reads only when the status is `blocked`: the first
+/// observation of a blocked episode stores one `escalation` from pod in the
+/// Run mailbox (spec 7.6), so the prompt rides the mail machinery.
 pub fn record_herdr_state(
     tx: &Tx<'_>,
     now: DateTime<Utc>,
@@ -170,7 +187,8 @@ pub fn record_herdr_state(
     status: AgentStatus,
     needs_input: &[String],
     presence: Option<&str>,
-) -> Result<()> {
+    screen: Option<&str>,
+) -> Result<Option<PromptEscalation>> {
     let activity = match status {
         AgentStatus::Working => "working",
         AgentStatus::Idle | AgentStatus::Blocked | AgentStatus::Done => "idle_at_prompt",
@@ -190,6 +208,11 @@ pub fn record_herdr_state(
     } else {
         needs_input
     };
+    let escalation = if presence == Some("present") && !needs_input.is_empty() {
+        begin_prompt_episode(tx, now, dispatch, needs_input, screen)?
+    } else {
+        None
+    };
     observations::insert(
         tx,
         &observations::ObservationRow {
@@ -208,7 +231,127 @@ pub fn record_herdr_state(
             attention: None,
             observed_at: now,
         },
-    )
+    )?;
+    Ok(escalation)
+}
+
+/// Stores the escalation for a worker that just began waiting on a prompt: the
+/// latest earlier herdr observation of the Dispatch had nothing waiting, the
+/// Dispatch is still active, and pod has no unread escalation for it. Run
+/// before the new observation is inserted, inside the same transaction, so a
+/// hook and a waiter recording one event store a single message.
+fn begin_prompt_episode(
+    tx: &Tx<'_>,
+    now: DateTime<Utc>,
+    dispatch: &DispatchId,
+    needs_input: &[String],
+    screen: Option<&str>,
+) -> Result<Option<PromptEscalation>> {
+    let Some(row) = dispatches::get(tx, dispatch)? else {
+        return Ok(None);
+    };
+    if !matches!(row.status.as_str(), "pending" | "dispatched") {
+        return Ok(None);
+    }
+    let previous: Option<String> =
+        tx.0.query_row(
+            "SELECT needs_input FROM observations
+             WHERE dispatch_id = ?1 AND evidence_source = 'herdr_state'
+             ORDER BY observed_at DESC, rowid DESC LIMIT 1",
+            [dispatch.as_str()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(previous) = previous {
+        let previous: serde_json::Value = serde_json::from_str(&previous).map_err(|error| {
+            PodError::store(format!("invalid needs_input observation: {error}"))
+        })?;
+        if parse_needs_input(&previous)?.count > 0 {
+            return Ok(None);
+        }
+    }
+    let mailbox = format!("run:{}", row.run_id);
+    let unread: i64 = tx.0.query_row(
+        "SELECT COUNT(*) FROM messages
+         WHERE mailbox = ?1 AND type = 'escalation' AND from_handle = 'pod' AND read = 0
+           AND json_extract(payload, '$.dispatch_id') = ?2",
+        (&mailbox, dispatch.as_str()),
+        |row| row.get(0),
+    )?;
+    if unread > 0 {
+        return Ok(None);
+    }
+    let handle = row
+        .assignee_handle
+        .clone()
+        .unwrap_or_else(|| dispatch.to_string());
+    let reason = if needs_input.iter().any(|reason| reason == "approval") {
+        "approval"
+    } else {
+        "input"
+    };
+    let pane = workers::get(tx, dispatch)?
+        .and_then(|worker| worker.pane_id)
+        .unwrap_or_else(|| "unknown".into());
+    let mut body = format!(
+        "Worker {handle} is waiting on a prompt that a person must answer; pod never answers it. Last screen lines:"
+    );
+    if let Some(tail) = screen.map(screen_tail).filter(|tail| !tail.is_empty()) {
+        body.push('\n');
+        body.push_str(&tail);
+    }
+    let id = MessageId::new();
+    messages::insert(
+        tx,
+        &messages::MessageRow {
+            sequence: None,
+            id: id.clone(),
+            run_id: row.run_id.clone(),
+            mailbox,
+            from_handle: "pod".into(),
+            subject: format!("Blocked on a prompt: {handle} ({reason})"),
+            body: Some(body),
+            r#type: "escalation".into(),
+            priority: "high".into(),
+            thread_id: None,
+            payload: Some(serde_json::json!({
+                "dispatch_id": dispatch,
+                "task_id": row.task_id,
+                "reason": reason,
+                "source": "pod",
+                "needs_input": needs_input,
+            })),
+            read: false,
+            created_at: now,
+            delivered_at: None,
+            sender_terminal_id: None,
+            rejected_reason: None,
+            evidence: Some(format!("pane:{pane}")),
+            recommendation: Some(format!(
+                "Run pod worker-read --dispatch {dispatch} --source terminal and answer the prompt in the pane as a person would, or pod worker-stop --dispatch {dispatch} and restart the task with other launch options."
+            )),
+        },
+    )?;
+    Ok(Some(PromptEscalation {
+        run_id: row.run_id,
+        message_id: id,
+    }))
+}
+
+/// The last lines of a screen: trailing blank lines dropped, at most
+/// [`SCREEN_LINES`] lines, each cut to [`SCREEN_WIDTH`] characters.
+fn screen_tail(screen: &str) -> String {
+    let lines: Vec<&str> = screen.lines().collect();
+    let end = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map_or(0, |index| index + 1);
+    let lines = &lines[..end];
+    lines[lines.len().saturating_sub(SCREEN_LINES)..]
+        .iter()
+        .map(|line| line.chars().take(SCREEN_WIDTH).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result<Projection> {
@@ -382,6 +525,7 @@ fn unanswered(
         "SELECT m.created_at FROM messages m
          WHERE m.mailbox = ?1 AND m.type = 'escalation'
            AND json_extract(m.payload, '$.dispatch_id') = ?2
+           AND m.from_handle != 'pod'
            AND NOT EXISTS (SELECT 1 FROM messages r
                            WHERE r.mailbox = ?3 AND r.sequence > m.sequence)
          ORDER BY m.sequence",

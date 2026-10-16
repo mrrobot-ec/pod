@@ -579,16 +579,24 @@ fn refresh_evidence(engine: &Engine, dispatch: &DispatchId, pane_id: &str) -> Re
     else {
         return Ok(());
     };
-    engine.store.tx(|tx| {
-        crate::engine::observe::record_herdr_state(
-            tx,
-            engine.clock.now(),
-            dispatch,
-            agent.status.clone(),
-            &agent.needs_input,
-            Some("present"),
-        )
-    })
+    let screen = crate::engine::reconcile::blocked_screen(engine, pane_id, &agent.status);
+    // A prompt this refresh finds is stored as mail like any other; the wake
+    // pass that called for the refresh is already under way, so its commit
+    // hook is left to the next trigger rather than started from inside it.
+    engine
+        .store
+        .tx(|tx| {
+            crate::engine::observe::record_herdr_state(
+                tx,
+                engine.clock.now(),
+                dispatch,
+                agent.status.clone(),
+                &agent.needs_input,
+                Some("present"),
+                screen.as_deref(),
+            )
+        })
+        .map(drop)
 }
 
 fn pane_terminal(engine: &Engine, agent: &AgentInfo) -> Result<Option<String>> {

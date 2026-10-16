@@ -32,6 +32,9 @@ struct State {
     folder_workspaces: BTreeMap<std::path::PathBuf, String>,
     removed_workspaces: std::collections::BTreeSet<String>,
     workspace_shapes: BTreeMap<String, (u32, u32, String)>,
+    /// Linked worktree workspaces herdr opened, each with its parent space.
+    linked_spaces: BTreeMap<String, String>,
+    linked_opened: u32,
     agent_start_error: Option<String>,
     agent_start_failures: VecDeque<String>,
     agent_start_kind: Option<String>,
@@ -72,6 +75,8 @@ impl FakeHerdr {
                 folder_workspaces: BTreeMap::new(),
                 removed_workspaces: std::collections::BTreeSet::new(),
                 workspace_shapes: BTreeMap::new(),
+                linked_spaces: BTreeMap::new(),
+                linked_opened: 0,
                 agent_start_error: None,
                 agent_start_failures: VecDeque::new(),
                 agent_start_kind: None,
@@ -216,7 +221,8 @@ impl FakeHerdr {
             .insert(workspace_id.to_owned(), (tabs, panes, agent.to_owned()));
     }
 
-    /// The workspaces closed through `workspace_close`, in order.
+    /// The workspaces closed through `workspace_close`, in order. A close
+    /// herdr refused is not in it.
     pub fn closed_workspaces(&self) -> Vec<String> {
         self.calls()
             .iter()
@@ -765,9 +771,21 @@ impl Herdr for FakeHerdr {
         }))
     }
 
-    fn workspace_close(&self, workspace_id: &str) -> Result<()> {
-        self.record(format!("workspace_close:{workspace_id}"));
+    fn workspace_close(&self, workspace_id: &str) -> Result<bool> {
         let mut state = self.state.lock().expect("fake herdr mutex poisoned");
+        // As herdr does: a repository's parent space is not closed alone
+        // while a linked worktree space of it is open (pod never asks for
+        // the group).
+        let group_open = state.linked_spaces.iter().any(|(linked, parent)| {
+            parent == workspace_id && !state.removed_workspaces.contains(linked)
+        });
+        if group_open {
+            state
+                .calls
+                .push(format!("workspace_close_refused:{workspace_id}"));
+            return Ok(false);
+        }
+        state.calls.push(format!("workspace_close:{workspace_id}"));
         state.removed_workspaces.insert(workspace_id.to_owned());
         state
             .folder_workspaces
@@ -775,7 +793,7 @@ impl Herdr for FakeHerdr {
         state
             .panes
             .retain(|_, pane| pane.workspace_id != workspace_id);
-        Ok(())
+        Ok(true)
     }
 
     fn workspace_report_metadata(&self, workspace_id: &str, status: Option<&str>) -> Result<()> {
@@ -819,6 +837,9 @@ impl Herdr for FakeHerdr {
         let id = state.next_id;
         state.next_id += 1;
         let workspace_id = format!("workspace_{}", req.name);
+        if let Some(parent) = state.folder_workspaces.get(&req.repo).cloned() {
+            state.linked_spaces.insert(workspace_id.clone(), parent);
+        }
         state.tab_panes.insert(format!("tab_{id}"), 1);
         let pane_id = format!("pane_{id}");
         state.panes.insert(
@@ -869,12 +890,19 @@ impl Herdr for FakeHerdr {
         let mut state = self.state.lock().expect("fake herdr mutex poisoned");
         open_parent_space(&mut state, source);
         let already_open = state.folder_workspaces.contains_key(path);
-        state
-            .folder_workspaces
-            .entry(path.to_path_buf())
-            .or_insert_with(|| "workspace_1".to_owned());
+        if !already_open {
+            state.linked_opened += 1;
+            let workspace_id = format!("workspace_{}", state.linked_opened);
+            if let Some(parent) = state.folder_workspaces.get(source).cloned() {
+                state.linked_spaces.insert(workspace_id.clone(), parent);
+            }
+            state
+                .folder_workspaces
+                .insert(path.to_path_buf(), workspace_id);
+        }
+        let workspace_id = state.folder_workspaces[path].clone();
         Ok(WorktreeInfo {
-            workspace_id: "workspace_1".into(),
+            workspace_id,
             path: path.to_path_buf(),
             branch: "main".into(),
             tab_id: "tab_1".into(),

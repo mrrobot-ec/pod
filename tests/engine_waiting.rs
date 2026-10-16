@@ -430,6 +430,7 @@ fn block_worker(env: &TestEnv, dispatch: &pod::ids::DispatchId) {
                 pod::herdr::AgentStatus::Blocked,
                 &["approval".into()],
                 Some("present"),
+                None,
             )
         })
         .unwrap();
@@ -470,7 +471,11 @@ fn a_newly_stuck_worker_notifies_once_and_an_unchanged_one_does_not() {
     seed_run(&mut env);
     let dispatch = seed_worker(&env);
     let waiter = reopen_on_fake_clock(&env);
-    let handle = thread::spawn(move || waiting::check_wait(&waiter, &[], 5_000));
+    // A wait that does not ask for escalations: the prompt pod stores for a
+    // blocked worker is mail, which a wait on its type would return instead.
+    let types = vec!["worker_done".to_owned()];
+    let wait_types = types.clone();
+    let handle = thread::spawn(move || waiting::check_wait(&waiter, &wait_types, 5_000));
     // The waiter must hold its slot and have taken its baseline before the
     // worker blocks, or the worker would already be known to it.
     let slot = env
@@ -485,8 +490,12 @@ fn a_newly_stuck_worker_notifies_once_and_an_unchanged_one_does_not() {
     }
     thread::sleep(Duration::from_millis(300));
     block_worker(&env, &dispatch);
-    let (_, woke) = handle.join().unwrap().unwrap();
+    let (delivery, woke) = handle.join().unwrap().unwrap();
     assert_eq!(woke, waiting::WokeOn::Attention);
+    // The batch carries the prompt pod stored, though the wait did not ask
+    // for its type.
+    assert_eq!(delivery.messages.len(), 1);
+    assert_eq!(delivery.messages[0].r#type, "escalation");
     let projection = env
         .engine
         .store
@@ -501,9 +510,44 @@ fn a_newly_stuck_worker_notifies_once_and_an_unchanged_one_does_not() {
     );
 
     // The same attention is already known to the next wait: no second notice.
-    let (_, woke) = waiting::check_wait(&env.engine, &[], 150).unwrap();
+    let (_, woke) = waiting::check_wait(&env.engine, &types, 150).unwrap();
     assert_eq!(woke, waiting::WokeOn::Timeout);
     assert_eq!(notifications(&env).len(), 1);
+}
+
+/// Seen live 2026-10-16: a worker sat on a model-switch selector for ten
+/// minutes because the only signal was an attention wake with count 0, which
+/// a coordinator that looks at message counts discards. The prompt is mail
+/// now: a wait on `escalation` returns with it, and it replays until
+/// acknowledged.
+#[test]
+fn check_wait_returns_a_blocked_worker_as_mail() {
+    let mut env = TestEnv::new();
+    seed_run(&mut env);
+    let dispatch = seed_worker(&env);
+    block_worker(&env, &dispatch);
+    let types = vec!["escalation".to_owned()];
+    let (delivery, woke) = waiting::check_wait(&env.engine, &types, 1_000).unwrap();
+    assert_eq!(woke, waiting::WokeOn::Message);
+    assert_eq!(delivery.messages.len(), 1);
+    let message = &delivery.messages[0];
+    assert_eq!(message.r#type, "escalation");
+    assert_eq!(message.from_handle, "pod");
+    assert_eq!(message.payload.as_ref().unwrap()["reason"], "approval");
+
+    // Not acknowledged: the next wait returns at once with the same message.
+    let started = Instant::now();
+    let (again, woke) = waiting::check_wait(&env.engine, &types, 5_000).unwrap();
+    assert_eq!(woke, waiting::WokeOn::Message);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(again.id, delivery.id);
+    assert_eq!(again.message_ids, delivery.message_ids);
+
+    // Acknowledged: the prompt is answered for the mailbox and the wait times out.
+    pod::engine::deliveries::check_ack(&env.engine, &delivery.id).unwrap();
+    let (empty, woke) = waiting::check_wait(&env.engine, &types, 150).unwrap();
+    assert_eq!(woke, waiting::WokeOn::Timeout);
+    assert!(empty.messages.is_empty());
 }
 
 /// Spec A2.1: `ask` ticks like `check --wait` while it blocks.

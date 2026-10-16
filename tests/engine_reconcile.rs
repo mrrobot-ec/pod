@@ -297,3 +297,50 @@ fn idle_coordinator_pane_reoffers_run_mail() {
     assert_eq!(ladder.attempts, 1);
     assert_eq!(env.herdr.submissions().len(), 1);
 }
+
+/// herdr runs the hook and a waiting `check --wait` sees the same event a few
+/// milliseconds apart; the rule runs inside the store transaction, so only one
+/// of them stores the escalation for the prompt.
+#[test]
+fn a_blocked_event_stores_one_escalation_for_the_hook_and_the_waiter() {
+    let env = TestEnv::new();
+    seed(&env);
+    env.herdr.add_pane(PANE, "term-worker", "ws");
+    env.herdr
+        .set_screen(PANE, "Select a model\n 1. Fable\n 2. Opus\n\n");
+    let blocked = || HerdrEvent::AgentStatusChanged {
+        pane_id: PANE.into(),
+        status: AgentStatus::Blocked,
+        needs_input: vec![],
+    };
+    reconcile::event(&env.engine, blocked()).unwrap();
+    reconcile::waiter_event(&env.engine, blocked()).unwrap();
+    let mail = env
+        .engine
+        .store
+        .read(|tx| messages::select(tx, &format!("run:{RUN}"), &[], false, 100, false))
+        .unwrap();
+    assert_eq!(mail.len(), 1, "{mail:?}");
+    assert_eq!(mail[0].r#type, "escalation");
+    assert_eq!(mail[0].from_handle, "pod");
+    assert_eq!(
+        mail[0].evidence.as_deref(),
+        Some(&format!("pane:{PANE}")[..])
+    );
+    let body = mail[0].body.as_deref().unwrap();
+    assert!(body.contains("Select a model"), "{body}");
+    assert!(body.contains("2. Opus"), "{body}");
+
+    // The waiter alone, for a fresh Dispatch's episode, stores it as well.
+    let env = TestEnv::new();
+    seed(&env);
+    env.herdr.set_screen(PANE, "Login required\n");
+    reconcile::waiter_event(&env.engine, blocked()).unwrap();
+    let mail = env
+        .engine
+        .store
+        .read(|tx| messages::select(tx, &format!("run:{RUN}"), &[], false, 100, false))
+        .unwrap();
+    assert_eq!(mail.len(), 1);
+    assert!(mail[0].body.as_deref().unwrap().contains("Login required"));
+}
