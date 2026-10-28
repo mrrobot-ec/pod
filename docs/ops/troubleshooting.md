@@ -56,6 +56,14 @@ One entry per row of the failure table in spec section 13, then entries for spec
 
 **Fix:** Keep waiting. Only `presence: exited` or `absent` is proof of exit.
 
+### A worker stopped without reporting
+
+**Symptom:** An `escalation` from `pod` with subject `Stalled: <handle> (<n> min without progress)`, and the attention category `stalled` with `requiresAction: true` (`pod status` lists the worker with reason `no_progress`). Plain `stale` alone does not mean this.
+
+**Cause:** The dispatched worker made no progress for `stall_minutes` (default 8): no heartbeat, no message to the Run, no `working` observation, and no transcript write, and it never sent `worker_done`. A common cause is an agent idle at its prompt while a background shell it started hangs; the escalation body shows a footer such as `2 shells still running`.
+
+**Fix:** Run `pod worker-read --dispatch <id>` and read the last screen lines in the escalation. If it is waiting on a hung command, `pod worker-stop --dispatch <id>` and restart the task. If it just stopped reporting, nudge it with `pod send --to <handle> ...`. A later heartbeat or message ends the episode; a new stall gets a new escalation. Raise `stall_minutes` for tasks with long silent steps, or set it to `0` to turn detection off.
+
 ### Worker silent
 
 **Symptom:** Attention `stale`, a warning only.

@@ -419,3 +419,60 @@ fn status_reports_a_worker_blocked_on_a_prompt_as_stalled() {
     observe(15, "working", r#"{"count":0,"reasons":[]}"#);
     assert!(stalled().is_empty());
 }
+
+/// A stalled escalation from pod puts the worker in `pod status` under
+/// `no_progress`, distinct from `stale`.
+#[test]
+fn status_lists_a_worker_with_a_stalled_escalation_as_no_progress() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "no progress", "--json"])
+        .assert()
+        .success();
+    let started = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "quiet work",
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    let dispatch = started["dispatchId"].as_str().unwrap().to_owned();
+    let run = started["runId"].as_str().unwrap().to_owned();
+
+    let db = rusqlite::Connection::open(&env.engine.paths.db_path).unwrap();
+    let at = (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
+    db.execute(
+        "INSERT INTO messages (id, run_id, mailbox, from_handle, subject, type, priority, payload, read, created_at) VALUES ('msg_000000000903', ?1, ?2, 'pod', 'Stalled: worker (9 min without progress)', 'escalation', 'high', ?3, 0, ?4)",
+        (
+            &run,
+            format!("run:{run}"),
+            serde_json::json!({"dispatch_id": dispatch, "source": "pod", "reason": "stalled"})
+                .to_string(),
+            &at,
+        ),
+    )
+    .unwrap();
+    let status = env
+        .pod(Some("term-coord"))
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status: Value = serde_json::from_slice(&status).unwrap();
+    let stalled = status["workers"]["stalled"].as_array().unwrap();
+    assert_eq!(stalled.len(), 1, "{stalled:?}");
+    assert_eq!(stalled[0]["dispatchId"], dispatch.as_str());
+    assert_eq!(stalled[0]["reason"], "no_progress");
+    assert_eq!(stalled[0]["nextAction"]["kind"], "worker-read");
+}

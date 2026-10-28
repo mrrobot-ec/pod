@@ -319,13 +319,14 @@ pub mod read {
     use sha2::{Digest, Sha256};
 
     use crate::engine::Engine;
+    use crate::engine::transcripts::locate_with_reason;
     use crate::error::{ErrorCode, PodError, Result};
     use crate::ids::DispatchId;
     use crate::store::rows::{
-        dispatches, runs, worker_archives,
+        dispatches, worker_archives,
         workers::{self, WorkerRow},
     };
-    use crate::transcript::{Row, reader_for, screen::TOOL_OUTPUT_LIMIT};
+    use crate::transcript::{Row, screen::TOOL_OUTPUT_LIMIT};
 
     pub const DEFAULT_LIMIT: u32 = 50;
     const MAX_LIMIT: u32 = 500;
@@ -371,13 +372,6 @@ pub mod read {
         pub fallback_reason: Option<String>,
     }
 
-    struct Proof {
-        session_id: String,
-        session_path: Option<PathBuf>,
-        /// The agent kind herdr detected, used when the Dispatch has none.
-        kind: Option<String>,
-    }
-
     pub fn worker_read(
         engine: &Engine,
         dispatch: &DispatchId,
@@ -389,16 +383,14 @@ pub mod read {
             return Err(PodError::usage("--limit must be at least 1"));
         }
         let limit = limit.min(MAX_LIMIT);
-        let (kind, cwd, worker, archive) = engine.store.read(|tx| {
+        let (kind, worker, archive) = engine.store.read(|tx| {
             let row = dispatches::get(tx, dispatch)?
                 .ok_or_else(|| PodError::usage(format!("Dispatch {dispatch} was not found")))?;
             let worker = workers::get(tx, dispatch)?.ok_or_else(|| {
                 PodError::usage(format!("Dispatch {dispatch} has no worker to read"))
             })?;
-            let home = runs::get(tx, &row.run_id)?.map(|run| run.home_cwd);
-            let cwd = worker.worktree_path.clone().or(home).unwrap_or_default();
             let archive = worker_archives::get(tx, dispatch, "final_screen")?;
-            Ok((row.agent_kind, PathBuf::from(cwd), worker, archive))
+            Ok((row.agent_kind, worker, archive))
         })?;
         let mut warnings = Vec::new();
         // The archive is written at release. From then on the pane, if it is
@@ -408,14 +400,7 @@ pub mod read {
 
         let mut fallback = None;
         if source != Source::Terminal {
-            match locate_transcript(
-                engine,
-                kind.as_deref(),
-                &cwd,
-                &worker,
-                released,
-                &mut warnings,
-            ) {
+            match locate_with_reason(engine, dispatch, kind.as_deref(), released, &mut warnings)? {
                 Ok(found) => {
                     check_pinned(cursor, false)?;
                     return read_transcript(found, cursor, limit, warnings);
@@ -474,79 +459,6 @@ pub mod read {
             format!("the cursor does not belong to the source now being read: {detail}"),
             &["Restart reading without --cursor, or force the original source with --source."],
         )
-    }
-
-    /// Proof of session, in the order of spec section 11. herdr is asked only
-    /// while the worker is unreleased. `Err` carries the `fallbackReason`.
-    fn locate_transcript(
-        engine: &Engine,
-        kind: Option<&str>,
-        cwd: &std::path::Path,
-        worker: &WorkerRow,
-        released: bool,
-        warnings: &mut Vec<String>,
-    ) -> std::result::Result<(Box<dyn crate::transcript::Reader>, PathBuf), &'static str> {
-        let live = if released {
-            None
-        } else {
-            herdr_proof(engine, worker, warnings)
-        };
-        let proof = live.or_else(|| stored_proof(worker));
-        let proof = proof.ok_or("session_unproven")?;
-        let reader = kind
-            .or(proof.kind.as_deref())
-            .and_then(reader_for)
-            .ok_or("reader_unavailable")?;
-        let path = reader
-            .locate(&proof.session_id, proof.session_path.as_deref(), cwd)
-            .ok()
-            .flatten()
-            .ok_or("reader_unavailable")?;
-        Ok((reader, path))
-    }
-
-    /// The proof pod recorded: a session it assigned at launch, or herdr's
-    /// report kept at release. A session ID with no proof value is not proof.
-    fn stored_proof(worker: &WorkerRow) -> Option<Proof> {
-        if !matches!(
-            worker.transcript_proof.as_deref(),
-            Some("herdr" | "pod_assigned")
-        ) || (worker.session_id.is_none() && worker.transcript_path.is_none())
-        {
-            return None;
-        }
-        Some(Proof {
-            session_id: worker.session_id.clone().unwrap_or_default(),
-            session_path: worker.transcript_path.as_ref().map(PathBuf::from),
-            kind: None,
-        })
-    }
-
-    fn herdr_proof(
-        engine: &Engine,
-        worker: &WorkerRow,
-        warnings: &mut Vec<String>,
-    ) -> Option<Proof> {
-        let pane = worker.pane_id.as_deref()?;
-        let agents = match engine.herdr.agent_list() {
-            Ok(agents) => agents,
-            Err(error) => {
-                warnings.push(format!(
-                    "herdr session proof unavailable: {}",
-                    error.message
-                ));
-                return None;
-            }
-        };
-        let agent = agents.into_iter().find(|agent| agent.pane_id == pane)?;
-        if agent.session_id.is_none() && agent.session_path.is_none() {
-            return None;
-        }
-        Some(Proof {
-            session_id: agent.session_id.unwrap_or_default(),
-            session_path: agent.session_path,
-            kind: Some(agent.kind),
-        })
     }
 
     fn read_transcript(

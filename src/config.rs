@@ -41,6 +41,9 @@ pub struct Limits {
 pub struct Defaults {
     pub nested_depth_max: u32,
     pub heartbeat_minutes: u64,
+    /// Minutes a dispatched worker may make no progress before pod stores a
+    /// `stalled` escalation for it; `0` turns stall detection off.
+    pub stall_minutes: u64,
     pub ask_timeout_ms: u64,
     /// Acknowledging a `worker_done` releases its worker, and `check --wait`
     /// first releases every acknowledged one (spec 7.4), closing the tab pod
@@ -54,6 +57,7 @@ impl Default for Defaults {
         Self {
             nested_depth_max: 1,
             heartbeat_minutes: 5,
+            stall_minutes: 8,
             ask_timeout_ms: 600_000,
             auto_release: true,
         }

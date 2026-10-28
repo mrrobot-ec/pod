@@ -101,8 +101,9 @@ pub struct TickReport {
     pub attempts: Vec<WakeAttemptRow>,
 }
 
-/// One ladder pass for every mailbox of `run` that holds unread mail: the Run
-/// mailbox and each `dispatch:<id>` with an unread row. Each goes through
+/// One stall sweep, then one ladder pass for every mailbox of `run` that holds
+/// unread mail: the Run mailbox and each `dispatch:<id>` with an unread row.
+/// Each goes through
 /// `on_trigger`, so the 60-second rule, the lock, and the ladder count hold,
 /// and a mailbox whose earlier triggers all found "not now" (and so recorded
 /// nothing) is retried like any other.
@@ -113,6 +114,8 @@ pub fn tick(engine: &Engine, run: &RunId, trigger: Trigger) -> Result<TickReport
             attempts: Vec::new(),
         });
     }
+    // A stalled worker's escalation is unread mail for the ladder pass below.
+    crate::engine::stall::sweep(engine, run)?;
     let mailboxes: Vec<String> = engine.store.read(|tx| {
         let mut statement = tx.0.prepare(
             "SELECT DISTINCT mailbox FROM messages

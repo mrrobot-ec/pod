@@ -340,7 +340,7 @@ fn begin_prompt_episode(
 
 /// The last lines of a screen: trailing blank lines dropped, at most
 /// [`SCREEN_LINES`] lines, each cut to [`SCREEN_WIDTH`] characters.
-fn screen_tail(screen: &str) -> String {
+pub(crate) fn screen_tail(screen: &str) -> String {
     let lines: Vec<&str> = screen.lines().collect();
     let end = lines
         .iter()
@@ -352,6 +352,66 @@ fn screen_tail(screen: &str) -> String {
         .map(|line| line.chars().take(SCREEN_WIDTH).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The latest sign of progress the store holds for an active Dispatch: when
+/// it was dispatched, its last heartbeat, the newest message its worker sent
+/// the Run, and the newest observation of it `working`. The stall sweep adds
+/// the transcript's modification time, which `project` has no engine to read.
+pub(crate) fn store_progress_at(
+    tx: &Tx<'_>,
+    row: &dispatches::DispatchRow,
+) -> Result<DateTime<Utc>> {
+    let mut latest = row.dispatched_at.unwrap_or(row.created_at);
+    if let Some(heartbeat) = row.last_heartbeat_at {
+        latest = latest.max(heartbeat);
+    }
+    if let Some(handle) = &row.assignee_handle {
+        let sent: Option<String> =
+            tx.0.query_row(
+                "SELECT created_at FROM messages WHERE run_id = ?1 AND from_handle = ?2
+                 ORDER BY created_at DESC, sequence DESC LIMIT 1",
+                (row.run_id.as_str(), handle),
+                |found| found.get(0),
+            )
+            .optional()?;
+        if let Some(sent) = sent {
+            latest = latest.max(parse_time(&sent)?);
+        }
+    }
+    let working: Option<String> =
+        tx.0.query_row(
+            "SELECT observed_at FROM observations
+             WHERE dispatch_id = ?1 AND activity = 'working'
+             ORDER BY observed_at DESC, rowid DESC LIMIT 1",
+            [row.id.as_str()],
+            |found| found.get(0),
+        )
+        .optional()?;
+    if let Some(working) = working {
+        latest = latest.max(parse_time(&working)?);
+    }
+    Ok(latest)
+}
+
+/// When pod last stored a `stalled` escalation for the Dispatch.
+pub(crate) fn stalled_escalation_at(
+    tx: &Tx<'_>,
+    run: &RunId,
+    dispatch: &DispatchId,
+) -> Result<Option<DateTime<Utc>>> {
+    let created: Option<String> =
+        tx.0.query_row(
+            "SELECT created_at FROM messages
+             WHERE mailbox = ?1 AND type = 'escalation' AND from_handle = 'pod'
+               AND json_extract(payload, '$.dispatch_id') = ?2
+               AND json_extract(payload, '$.reason') = 'stalled'
+             ORDER BY sequence DESC LIMIT 1",
+            (format!("run:{run}"), dispatch.as_str()),
+            |found| found.get(0),
+        )
+        .optional()?;
+    created.map(|created| parse_time(&created)).transpose()
 }
 
 pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result<Projection> {
@@ -421,6 +481,18 @@ pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result
     if outcome == "active" && now.signed_duration_since(freshness) > Duration::minutes(10) {
         categories.push("stale".into());
     }
+    // A stall pod reported stays until the worker shows progress after the
+    // report; a missed heartbeat while the transcript moves is only `stale`.
+    let stalled = outcome == "active"
+        && liveness != "exited"
+        && match stalled_escalation_at(tx, &dispatch_row.run_id, dispatch)? {
+            Some(reported) => reported > store_progress_at(tx, &dispatch_row)?,
+            None => false,
+        };
+    if stalled {
+        categories.push("stalled".into());
+        requires_action = true;
+    }
     let mailbox = format!("dispatch:{dispatch}");
     let unreachable = crate::engine::wake::ladder_position(tx, &mailbox)?.exhausted;
     if unreachable {
@@ -454,7 +526,7 @@ pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result
     let terminal_state = worker.as_ref().map(|row| row.terminal_state.as_str());
     let next_action = if unreachable || (liveness == "exited" && unsettled) {
         NextAction::command("worker-show", dispatch)
-    } else if liveness == "live" && needs_input.count > 0 {
+    } else if (liveness == "live" && needs_input.count > 0) || stalled {
         NextAction::command("worker-read", dispatch)
     } else if let Some(action) = guidance {
         action

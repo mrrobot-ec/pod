@@ -353,6 +353,8 @@ fn check_wait_ticks_the_ladder_while_it_waits() {
 fn check_wait_wakes_on_a_worker_that_goes_stale() {
     let mut env = TestEnv::new();
     seed_run(&mut env);
+    // Plain `stale` only: eleven silent minutes would also be a stall.
+    env.engine.config.defaults.stall_minutes = 0;
     env.engine.tick_interval = Duration::from_millis(200);
     let now = Clock::now(env.clock.as_ref());
     env.engine.store.tx(|tx| {

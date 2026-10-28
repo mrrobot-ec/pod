@@ -229,6 +229,7 @@ Added on top of A1 to A4, from other facts:
 | ID | Evidence | Effect |
 |---|---|---|
 | A5 | no heartbeat for 10 minutes | `stale` added, warning only, `liveness` unchanged |
+| A5b | an active, non-exited worker with no progress for `stall_minutes` (default 8; heartbeat, message from the worker, `working` observation, or transcript write; no pending prompt) | pod stores one `escalation` per episode; `stalled` added with `requiresAction: true`, `nextAction` `worker-read`; cleared by any progress after the escalation. `liveness` unchanged |
 | A6 | wake ladder exhausted (N4 below) | `unreachable` added with `requiresAction: true`, `liveness` unchanged |
 | A7 | the screen read before a prompt or paste found text a person typed | `interruption` added with `requiresAction: false`, `nextAction` `worker-read`; cleared when a later read finds the input bare |
 | A8 | a `question` or `escalation` from this Dispatch is unanswered for 5 minutes | `guidance` added with `requiresAction: true`, `nextAction` `reply --id <message>` (question) or `worker-read` (escalation); cleared on the reply or on a `send` to the Dispatch |

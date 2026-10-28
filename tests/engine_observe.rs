@@ -811,3 +811,41 @@ fn pod_escalations_never_become_guidance() {
     assert!(value.attention.requires_action);
     assert_eq!(value.next_action.kind, "worker-read");
 }
+
+#[test]
+fn a_stalled_escalation_adds_the_stalled_category_until_the_worker_makes_progress() {
+    let env = TestEnv::new();
+    let dispatch = seed(&env);
+    record(&env, &dispatch, Some("present"));
+    env.clock.advance(Duration::from_secs(9 * 60));
+    let at = Clock::now(env.clock.as_ref()).to_rfc3339();
+    env.engine.store.tx(|tx| {
+        tx.0.execute("INSERT INTO messages (id, run_id, mailbox, from_handle, subject, type, priority, payload, read, created_at) VALUES ('msg_000000000812', ?1, ?2, 'pod', 'Stalled: worker (9 min without progress)', 'escalation', 'high', ?3, 0, ?4)", (RUN, format!("run:{RUN}"), serde_json::json!({"dispatch_id": DISPATCH, "task_id": TASK, "source": "pod", "reason": "stalled"}).to_string(), &at))?;
+        Ok(())
+    }).unwrap();
+    let stalled = project(&env, &dispatch);
+    assert_eq!(stalled.attention.categories, vec!["stalled"]);
+    assert!(stalled.attention.requires_action);
+    assert_eq!(stalled.next_action.kind, "worker-read");
+
+    // A working observation after the escalation is progress.
+    env.clock.advance(Duration::from_secs(60));
+    env.engine
+        .store
+        .tx(|tx| {
+            observe::record_herdr_state(
+                tx,
+                Clock::now(env.clock.as_ref()),
+                &dispatch,
+                AgentStatus::Working,
+                &[],
+                Some("present"),
+                None,
+            )
+        })
+        .unwrap();
+    let after = project(&env, &dispatch);
+    assert!(after.attention.categories.is_empty(), "{after:?}");
+    assert!(!after.attention.requires_action);
+    assert_eq!(after.next_action.kind, "none");
+}

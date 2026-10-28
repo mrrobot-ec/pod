@@ -32,6 +32,7 @@ Other variables pod reads: `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `HERDR_SOCKET_PA
 [defaults]
 nested_depth_max = 1
 heartbeat_minutes = 5
+stall_minutes = 8
 ask_timeout_ms = 600000
 auto_release = true
 
@@ -61,12 +62,13 @@ The `sol` preset is the reviewer: a codex agent at `xhigh` effort. `terra` is th
 |---|---|---|---|---|
 | `nested_depth_max` | integer | `1` | `>= 0`. At `1`, workers may not start workers. A start whose depth would exceed it returns `nested_worker_depth_exceeded`. | `worker-start`, `dispatch` (preflight); preamble rendering for the `=== SUB-DISPATCH ===` section |
 | `heartbeat_minutes` | integer | `5` | `>= 1`. | `worker-start`, `dispatch` (the cadence printed in the preamble) |
+| `stall_minutes` | integer | `8` | `>= 0`. Minutes a dispatched worker may go without progress (no heartbeat, message from the worker, `working` observation, or transcript write) before pod stores a `stalled` `escalation` for it and adds the `stalled` attention category. `0` turns stall detection off. A worker waiting on a prompt is never counted; it has its own escalation. | the stall sweep (`check --wait`, `ask`, `pod usage --tick`, mutating commands, idle hooks) |
 | `ask_timeout_ms` | integer | `600000` | `>= 1`; values above `1800000` are capped at `1800000`. An explicit `--timeout-ms` on `ask` is capped the same way. | `ask` |
 | `auto_release` | boolean | `true` | Acknowledging a `worker_done` (`check --ack`) releases its worker, as `worker-release` would, and `check --wait` first releases every worker of the Run whose report is already acknowledged. Both list the workers in `released`. A worker retained before the acknowledgement keeps its pane. `false` leaves every release to `worker-release` and `worker-gc`. `release_on_wait`, the 0.2.7 name of this key, is accepted as an alias. | `check --ack`, `check --wait` |
 
 The spec fixes the defaults shown, the ask timeout cap, alias restrictions, and launch mappings. The numeric lower bounds and the defaults for omitted alias and preset fields are pod's own. A timeout above the cap is clamped to the cap, not rejected.
 
-The 10-minute silence threshold for the `stale` warning is not configurable in version 1.
+The 10-minute silence threshold for the `stale` warning is not configurable in version 1. `stale` (a missed heartbeat) and `stalled` (no progress of any kind for `stall_minutes`) are separate: a worker that keeps writing its transcript can be `stale` without being `stalled`.
 
 ## `[limits]`
 

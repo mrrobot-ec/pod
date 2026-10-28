@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- Stall detection: a dispatched worker that makes no progress for `stall_minutes` (new `[defaults]` key, default 8, `0` turns it off) and sends no `worker_done` is reported as an `escalation` from `pod` in the Run mailbox, once per stall episode, with the minutes without progress, the activity, the last heartbeat, any background-shell footer, and the last screen lines. Its projection gains the `stalled` attention category (`requiresAction: true`, `nextAction` `worker-read`), `check --wait` ends on it, and `pod status` lists the worker with reason `no_progress`. Plain `stale` (a missed heartbeat) is unchanged. Seen live 2026-10-22: a worker sat idle behind a hung background shell for 11 minutes and only `stale`, which asks nothing, said so.
 - `worker-gc --include-retained` releases retained workers too, exactly as `worker-release` would. `check --wait`'s acknowledged sweep still never releases a retained worker.
 
 ## [0.2.10] - 2026-10-16
