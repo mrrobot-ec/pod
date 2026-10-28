@@ -45,6 +45,7 @@ impl TestEnv {
         engine.input_settle = std::time::Duration::ZERO;
         engine.tick_interval = std::time::Duration::from_millis(200);
         engine.ready_wait = std::time::Duration::from_millis(100);
+        engine.brief_proof_wait = std::time::Duration::from_millis(200);
         Self {
             engine,
             herdr,
@@ -68,6 +69,7 @@ impl TestEnv {
         engine.input_settle = self.engine.input_settle;
         engine.tick_interval = self.engine.tick_interval;
         engine.ready_wait = self.engine.ready_wait;
+        engine.brief_proof_wait = self.engine.brief_proof_wait;
         engine
     }
 
@@ -94,6 +96,7 @@ impl TestEnv {
             .env("HOME", self.tmp.path())
             .env("POD_STATE_DIR", self.tmp.path().join("state"))
             .env("HERDR_SOCKET_PATH", "/tmp/herdr/test.sock")
+            .env("POD_BRIEF_PROOF_MS", "0")
             .env("POD_FAKE_HERDR", "1");
         if let Some(terminal_id) = caller {
             command.envs(fake_caller_env(terminal_id));

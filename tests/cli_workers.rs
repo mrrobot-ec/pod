@@ -476,3 +476,51 @@ fn status_lists_a_worker_with_a_stalled_escalation_as_no_progress() {
     assert_eq!(stalled[0]["reason"], "no_progress");
     assert_eq!(stalled[0]["nextAction"]["kind"], "worker-read");
 }
+
+/// A worker whose brief herdr accepted but the transcript never showed is
+/// listed as stalled with reason `brief_unconfirmed`.
+#[test]
+fn status_reports_an_unconfirmed_brief_as_stalled() {
+    let env = TestEnv::new();
+    env.pod(Some("term-coord"))
+        .args(["run-create", "--objective", "unproven", "--json"])
+        .assert()
+        .success();
+    let started = env
+        .pod(Some("term-coord"))
+        .args([
+            "worker-start",
+            "--spec",
+            "unread work",
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let started: Value = serde_json::from_slice(&started).unwrap();
+    let dispatch = started["dispatchId"].as_str().unwrap().to_owned();
+    let db = rusqlite::Connection::open(&env.engine.paths.db_path).unwrap();
+    db.execute(
+        "UPDATE workers SET preamble_input = 'rendered_unconfirmed' WHERE dispatch_id = ?1",
+        [&dispatch],
+    )
+    .unwrap();
+    let status = env
+        .pod(Some("term-coord"))
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status: Value = serde_json::from_slice(&status).unwrap();
+    let stalled = status["workers"]["stalled"].as_array().unwrap();
+    assert_eq!(stalled.len(), 1, "{stalled:?}");
+    assert_eq!(stalled[0]["dispatchId"], dispatch.as_str());
+    assert_eq!(stalled[0]["reason"], "brief_unconfirmed");
+    assert_eq!(stalled[0]["nextAction"]["kind"], "worker-read");
+}

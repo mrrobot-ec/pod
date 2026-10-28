@@ -507,6 +507,17 @@ pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result
         categories.push("interruption".into());
     }
 
+    // A brief herdr accepted that the agent's transcript never showed was
+    // not read (seen live 2026-10-21); the coordinator looks at the worker.
+    let brief_unconfirmed = outcome == "active"
+        && worker
+            .as_ref()
+            .is_some_and(|row| row.preamble_input.as_deref() == Some("rendered_unconfirmed"));
+    if brief_unconfirmed {
+        categories.push("brief_unconfirmed".into());
+        requires_action = true;
+    }
+
     // A question or escalation the coordinator has left unanswered for 5
     // minutes needs guidance (spec 7.6).
     let guidance = if outcome == "active" {
@@ -530,7 +541,7 @@ pub fn project(tx: &Tx<'_>, now: DateTime<Utc>, dispatch: &DispatchId) -> Result
         NextAction::command("worker-read", dispatch)
     } else if let Some(action) = guidance {
         action
-    } else if typing && outcome == "active" {
+    } else if (typing && outcome == "active") || brief_unconfirmed {
         NextAction::command("worker-read", dispatch)
     } else if !unsettled
         && matches!(

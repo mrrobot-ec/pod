@@ -626,7 +626,10 @@ fn start_stages(
         .at("pane", true)?;
     wait_for_shell(engine, &tab.pane_id, timeout_ms).at("pane", true)?;
     workers_stage(engine, dispatch, "agent").at("agent", true)?;
-    let mut argv = launch_argv(ctx.launch);
+    // herdr runs the kind's own executable and appends `args`, so the
+    // command name `launch_argv` leads with must not go along: the agent
+    // takes a stray positional as its first prompt (seen live 2026-10-21).
+    let mut argv = launch_argv(ctx.launch).split_off(1);
     // An unattended worker must get past its agent's folder-trust prompt
     // (see `trust`). Codex keys a linked worktree on the repository it came
     // from, so that root is trusted as well. A config pod cannot update is
@@ -865,6 +868,7 @@ fn started_receipt(
 ) -> Result<StartReceipt> {
     let dispatch = frame.dispatch.clone();
     let (mut receipt, _) = frame.receipt(engine)?;
+    receipt.warnings.extend(engine.take_warnings());
     if !matches!(outcome, InputOutcome::Delivered) {
         receipt.outcome = Some("dispatched_unobserved".into());
         receipt.last_error.get_or_insert_with(|| {
@@ -1511,7 +1515,8 @@ fn inject(
         "The full worker brief is stored at {}. Read that file, then carry out the task.",
         path.display()
     );
-    let outcome = super::safe_input::inject_preamble(engine, dispatch, handle, &text)?;
+    let outcome =
+        super::safe_input::inject_preamble_proved(engine, dispatch, handle, &text, Some(&path))?;
     engine.store.tx(|tx| {
         let mut effects = workers::get(tx, dispatch)?
             .and_then(|worker| worker.effects)

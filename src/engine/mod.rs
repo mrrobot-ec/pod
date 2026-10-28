@@ -43,6 +43,9 @@ pub struct Engine {
     /// How long the paste fallback waits for an agent's empty input line
     /// (20 seconds; tests shorten it).
     pub ready_wait: std::time::Duration,
+    /// How long the brief's transcript proof looks for the brief after herdr
+    /// accepted it (`POD_BRIEF_PROOF_MS`, default 5 seconds; tests shorten it).
+    pub brief_proof_wait: std::time::Duration,
     /// Warnings from optional effects (a notification) that the command's
     /// receipt carries; see [`Engine::take_warnings`].
     warnings: std::sync::Mutex<Vec<String>>,
@@ -55,6 +58,15 @@ pub fn input_settle_from_env() -> std::time::Duration {
         .and_then(|value| value.parse::<u64>().ok())
         .map(std::time::Duration::from_millis)
         .unwrap_or(std::time::Duration::from_millis(3000))
+}
+
+/// The brief proof window from `POD_BRIEF_PROOF_MS`, default five seconds.
+pub fn brief_proof_wait_from_env() -> std::time::Duration {
+    std::env::var("POD_BRIEF_PROOF_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or(std::time::Duration::from_millis(5000))
 }
 
 impl Engine {
@@ -76,6 +88,7 @@ impl Engine {
             input_settle: input_settle_from_env(),
             tick_interval: std::time::Duration::from_secs(60),
             ready_wait: std::time::Duration::from_millis(safe_input::READY_WAIT_MS),
+            brief_proof_wait: brief_proof_wait_from_env(),
             warnings: std::sync::Mutex::new(Vec::new()),
         }
     }

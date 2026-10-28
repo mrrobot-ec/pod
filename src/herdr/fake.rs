@@ -45,6 +45,7 @@ struct State {
     agent_start_argv: Vec<Vec<String>>,
     pane_send_text_error: Option<String>,
     render_sent_text: bool,
+    transcript_echo: bool,
     setup_exit: Option<i32>,
     agent_statuses: BTreeMap<String, VecDeque<AgentStatus>>,
     prompt_outcomes: VecDeque<PromptOutcome>,
@@ -87,6 +88,7 @@ impl FakeHerdr {
                 agent_start_argv: Vec::new(),
                 pane_send_text_error: None,
                 render_sent_text: true,
+                transcript_echo: false,
                 setup_exit: None,
                 agent_statuses: BTreeMap::new(),
                 prompt_outcomes: VecDeque::new(),
@@ -323,7 +325,18 @@ impl FakeHerdr {
             .agent_start_session = Some((id.map(str::to_owned), path.map(Path::to_path_buf)));
     }
 
-    /// The argv of every `agent_start` call, oldest first.
+    /// Whether `agent_prompt` appends the text as a Claude-format user row to
+    /// the agent's reported `session_path`, as a live agent's transcript does
+    /// once it takes the turn. Off by default.
+    pub fn set_transcript_echo(&self, value: bool) {
+        self.state
+            .lock()
+            .expect("fake herdr mutex poisoned")
+            .transcript_echo = value;
+    }
+
+    /// The arguments of every `agent_start` call (after the executable),
+    /// oldest first.
     pub fn agent_start_argv(&self) -> Vec<Vec<String>> {
         self.state
             .lock()
@@ -1008,6 +1021,26 @@ impl Herdr for FakeHerdr {
                 )
             })?;
         state.submissions.push((pane_id, text.into()));
+        if state.transcript_echo
+            && let Some(path) = state
+                .agents
+                .get(name)
+                .and_then(|agent| agent.session_path.clone())
+        {
+            use std::io::Write;
+            let row = serde_json::json!({
+                "type": "user",
+                "timestamp": Utc::now().to_rfc3339(),
+                "message": {"role": "user", "content": text},
+            });
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(file, "{row}");
+            }
+        }
         // A pane that never shows what was sent never shows a turn either.
         let unscripted = if state.render_sent_text {
             PromptOutcome::Submitted

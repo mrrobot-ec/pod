@@ -2117,12 +2117,22 @@ fn set_budget(env: &TestEnv, run: &RunId, budget: f64) {
         .unwrap();
 }
 
+/// The start receipt's warnings other than the brief-proof note a fake herdr
+/// start always carries (it reports no transcript).
+fn other_warnings(warnings: &[String]) -> Vec<String> {
+    warnings
+        .iter()
+        .filter(|w| !w.starts_with("brief delivery unproven"))
+        .cloned()
+        .collect()
+}
+
 #[test]
 fn worker_start_refuses_a_run_whose_budget_is_spent_and_warns_near_it() {
     let (env, run, task) = seeded();
     let first = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
     spend(&env, &first.dispatch_id, 3.1046);
-    assert!(first.warnings.is_empty());
+    assert!(other_warnings(&first.warnings).is_empty());
 
     set_budget(&env, &run, 1.0);
     let second = new_task(&env, &run, "second");
@@ -2142,16 +2152,13 @@ fn worker_start_refuses_a_run_whose_budget_is_spent_and_warns_near_it() {
     set_budget(&env, &run, 3.5);
     let warned = lifecycle::worker_start(&env.engine, input(second, run.clone())).unwrap();
     assert_eq!(warned.state, "ready");
-    assert_eq!(warned.warnings.len(), 1, "{:?}", warned.warnings);
-    assert!(
-        warned.warnings[0].contains("$3.10"),
-        "{:?}",
-        warned.warnings
-    );
+    let warnings = other_warnings(&warned.warnings);
+    assert_eq!(warnings.len(), 1, "{:?}", warned.warnings);
+    assert!(warnings[0].contains("$3.10"), "{:?}", warned.warnings);
     set_budget(&env, &run, 10.0);
     let third = new_task(&env, &run, "third");
     let quiet = lifecycle::worker_start(&env.engine, input(third, run)).unwrap();
-    assert!(quiet.warnings.is_empty());
+    assert!(other_warnings(&quiet.warnings).is_empty());
 }
 
 #[test]
@@ -2160,7 +2167,7 @@ fn a_budget_with_no_matched_session_costs_nothing() {
     set_budget(&env, &run, 0.01);
     let started = lifecycle::worker_start(&env.engine, input(task, run)).unwrap();
     assert_eq!(started.state, "ready");
-    assert!(started.warnings.is_empty());
+    assert!(other_warnings(&started.warnings).is_empty());
 }
 
 /// Review Focus 5: with `pause_above_percent` set, a missing or unreadable
@@ -2173,7 +2180,11 @@ fn a_missing_or_unreadable_usage_record_never_blocks_a_start() {
     claude.agent = Some("claude".into());
     let started = lifecycle::worker_start(&env.engine, claude).unwrap();
     assert_eq!(started.state, "ready");
-    assert!(started.warnings.is_empty(), "{:?}", started.warnings);
+    assert!(
+        other_warnings(&started.warnings).is_empty(),
+        "{:?}",
+        started.warnings
+    );
     let usage = env.engine.paths.state_dir.join("usage");
     std::fs::create_dir_all(&usage).unwrap();
     std::fs::write(usage.join("claude.json"), "{not json").unwrap();

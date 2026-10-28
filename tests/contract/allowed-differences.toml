@@ -963,6 +963,12 @@ kind = "extra"
 difference = "Presets: named presets resolve to a kind, model, effort, fast, args"
 
 [[allow]]
+command = "worker-start"
+path = "$.warnings"
+kind = "extra"
+difference = "Brief proof: a worker whose transcript pod cannot read or locate gets the warning 'brief delivery unproven: no transcript for <kind>'"
+
+[[allow]]
 command = "check"
 path = "$.wokeOn"
 kind = "extra"

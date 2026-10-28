@@ -136,7 +136,8 @@ struct StatusReport<'a> {
     /// The bound Run's workers by terminal state, and the ones that look
     /// stalled: `blocked_on_prompt` (a live agent waiting on a person),
     /// `no_progress` (pod reported a stall: no heartbeat, message, activity or
-    /// transcript write for `stall_minutes`), `stale` (no heartbeat, activity,
+    /// transcript write for `stall_minutes`), `brief_unconfirmed` (herdr took the
+    /// brief but the transcript never showed it), `stale` (no heartbeat, activity,
     /// or message for 10 minutes) or idle at
     /// a prompt with an open Dispatch. Absent without a bound
     /// Run or when herdr cannot be asked.
@@ -164,12 +165,20 @@ fn workers_summary(ctx: &Ctx, run: &crate::ids::RunId) -> Option<serde_json::Val
                 .categories
                 .iter()
                 .any(|category| category == "stalled");
+            let brief_unconfirmed = view
+                .projection
+                .attention
+                .categories
+                .iter()
+                .any(|category| category == "brief_unconfirmed");
             let blocked_on_prompt =
                 view.projection.liveness == "live" && view.projection.needs_input.count > 0;
             let idle_with_open_dispatch = view.dispatch.status == "dispatched"
                 && view.projection.activity == "idle_at_prompt";
             let reason = if blocked_on_prompt {
                 "blocked_on_prompt"
+            } else if brief_unconfirmed {
+                "brief_unconfirmed"
             } else if no_progress {
                 "no_progress"
             } else if stale {

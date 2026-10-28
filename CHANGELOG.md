@@ -7,9 +7,14 @@ All notable changes to this project are documented in this file. The format is b
 ### Fixed
 
 - A retained worker is no longer marked user-owned, so `worker-release` closes its pane and tab and the spaces herdr opened for it, and `worker-stop` closes the pane of a retained worker whose Dispatch is still active. Before, a retain made release read a takeover and leave everything open (seen live 2026-10-26: 36 panes open with 14 finished agents). Workers retained by earlier versions release the same way, and the release clears their mark.
+- The command name was passed to herdr as the agent's first argument, so every Claude and Codex worker started as `claude claude ...` and spent its first turn answering a stray prompt. pod now sends herdr only the launch flags; the `[agents.<kind>] command` alias is validated and recorded but never ran another binary (seen live 2026-10-21).
+- A brief herdr called `agent_prompted` was reported `delivered` even when the still-starting TUI dropped it and herdr only saw the agent's own stray first turn. The brief now waits for an idle agent and counts as delivered only once the agent's transcript shows it (seen live 2026-10-21 on four Claude workers started together).
 
 ### Added
 
+- The brief waits for the agent to be idle (at most `ready_wait`) before it is prompted; the wait is the worker effect `preamble_waited_ms`.
+- Transcript proof of the brief: a prompt herdr accepted but the transcript did not show within 5 s is `preambleInput: rendered_unconfirmed` (`dispatched_unobserved`), never retyped. A kind with no transcript reader keeps herdr's word and warns `brief delivery unproven`.
+- The attention category `brief_unconfirmed` (`requiresAction: true`, `nextAction` `worker-read`), and `pod status` lists such a worker as stalled with that reason.
 - Stall detection: a dispatched worker that makes no progress for `stall_minutes` (new `[defaults]` key, default 8, `0` turns it off) and sends no `worker_done` is reported as an `escalation` from `pod` in the Run mailbox, once per stall episode, with the minutes without progress, the activity, the last heartbeat, any background-shell footer, and the last screen lines. Its projection gains the `stalled` attention category (`requiresAction: true`, `nextAction` `worker-read`), `check --wait` ends on it, and `pod status` lists the worker with reason `no_progress`. Plain `stale` (a missed heartbeat) is unchanged. Seen live 2026-10-22: a worker sat idle behind a hung background shell for 11 minutes and only `stale`, which asks nothing, said so.
 - `worker-gc --include-retained` releases retained workers too, exactly as `worker-release` would. `check --wait`'s acknowledged sweep still never releases a retained worker.
 

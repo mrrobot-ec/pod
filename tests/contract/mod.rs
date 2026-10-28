@@ -453,6 +453,7 @@ impl PodEnv {
             .env_clear()
             .envs(fake_herdr)
             .env("POD_FAKE_HERDR", "1")
+            .env("POD_BRIEF_PROOF_MS", "0")
             .env("HOME", self.tmp.path())
             .env("POD_STATE_DIR", self.tmp.path().join("state"))
             .env("HERDR_SOCKET_PATH", "/tmp/herdr/contract.sock")

@@ -849,3 +849,56 @@ fn a_stalled_escalation_adds_the_stalled_category_until_the_worker_makes_progres
     assert!(!after.attention.requires_action);
     assert_eq!(after.next_action.kind, "none");
 }
+
+/// A brief herdr accepted but the transcript never showed (seen live
+/// 2026-10-21) needs the coordinator to read the worker.
+#[test]
+fn an_unconfirmed_brief_requires_a_read_while_the_dispatch_is_active() {
+    let mut env = TestEnv::new();
+    let dispatch = seed_dispatched_worker(&mut env);
+    assert!(
+        !project(&env, &dispatch)
+            .attention
+            .categories
+            .contains(&"brief_unconfirmed".into())
+    );
+    env.engine
+        .store
+        .tx(|tx| {
+            tx.0.execute(
+                "UPDATE workers SET preamble_input = 'rendered_unconfirmed' WHERE dispatch_id = ?1",
+                [DISPATCH],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let value = project(&env, &dispatch);
+    assert!(
+        value
+            .attention
+            .categories
+            .contains(&"brief_unconfirmed".into()),
+        "{:?}",
+        value.attention
+    );
+    assert!(value.attention.requires_action);
+    let next = serde_json::to_value(&value.next_action).unwrap();
+    assert_eq!(next["kind"], "worker-read", "{next}");
+
+    env.engine
+        .store
+        .tx(|tx| {
+            tx.0.execute(
+                "UPDATE dispatches SET status = 'completed' WHERE id = ?1",
+                [DISPATCH],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        !project(&env, &dispatch)
+            .attention
+            .categories
+            .contains(&"brief_unconfirmed".into())
+    );
+}

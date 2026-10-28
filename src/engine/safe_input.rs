@@ -1,10 +1,12 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::engine::transcripts::{self, BriefProof};
 use crate::engine::waiting::StateLock;
 use crate::engine::{Engine, observe};
 use crate::error::{ErrorCode, Result};
@@ -18,6 +20,7 @@ const FRESH_SECONDS: i64 = 15;
 /// 8 seconds to become idle (seen live 2026-10-13).
 pub const READY_WAIT_MS: u64 = 20_000;
 const PROMPT_WAIT_MS: u64 = 5_000;
+const IDLE_POLL: Duration = Duration::from_millis(250);
 const MAX_CONFIRMATION_LINES: usize = 2_000;
 
 /// Result of the paste-confirm-submit safe-input procedure.
@@ -249,6 +252,24 @@ pub fn prompt_or_paste_with_reason(
     dispatch: Option<&DispatchId>,
     patience: Patience,
 ) -> Result<(InputOutcome, InjectPath, Option<String>)> {
+    prompt_or_paste_waited(engine, handle, pane_id, text, dispatch, patience)
+        .map(|(outcome, path, reason, _)| (outcome, path, reason))
+}
+
+/// `prompt_or_paste_with_reason`, plus how long a launch brief waited for the
+/// agent to go idle (`None` for any other patience).
+fn prompt_or_paste_waited(
+    engine: &Engine,
+    handle: &str,
+    pane_id: &str,
+    text: &str,
+    dispatch: Option<&DispatchId>,
+    patience: Patience,
+) -> Result<(InputOutcome, InjectPath, Option<String>, Option<u64>)> {
+    // A brief typed while the agent is still bringing its TUI up can be
+    // dropped, with herdr still answering `agent_prompted` for the turn the
+    // agent started on its own (seen live 2026-10-21): wait for idle first.
+    let waited = (patience == Patience::Launch).then(|| wait_for_idle(engine, handle));
     let seen = person_typing(engine.herdr.as_ref(), pane_id);
     if let Some(dispatch) = dispatch {
         record_typing(engine, dispatch, seen.as_ref().map(Option::as_deref))?;
@@ -259,6 +280,7 @@ pub fn prompt_or_paste_with_reason(
             InputOutcome::Skipped(format!("person is typing: {shown}")),
             InjectPath::Prompt,
             None,
+            waited,
         ));
     }
     let wait_ms = (patience != Patience::Bar).then_some(PROMPT_WAIT_MS);
@@ -281,20 +303,27 @@ pub fn prompt_or_paste_with_reason(
         }
     };
     match prompted {
-        Ok(PromptOutcome::Submitted) => Ok((InputOutcome::Delivered, InjectPath::Prompt, None)),
+        Ok(PromptOutcome::Submitted) => {
+            Ok((InputOutcome::Delivered, InjectPath::Prompt, None, waited))
+        }
         Ok(PromptOutcome::Blocked) => Ok((
             InputOutcome::Skipped("agent is blocked at a prompt (agent_blocked)".into()),
             InjectPath::Prompt,
             None,
+            waited,
         )),
         // The text and Enter went in; no turn was observed. Never type again.
-        Ok(PromptOutcome::Stalled) => {
-            Ok((InputOutcome::RenderedUnconfirmed, InjectPath::Prompt, None))
-        }
+        Ok(PromptOutcome::Stalled) => Ok((
+            InputOutcome::RenderedUnconfirmed,
+            InjectPath::Prompt,
+            None,
+            waited,
+        )),
         Err(error) if error.code == ErrorCode::HerdrUnreachable => Ok((
             InputOutcome::Failed(error.message),
             InjectPath::Prompt,
             None,
+            waited,
         )),
         Err(error) => {
             if patience == Patience::Launch {
@@ -309,9 +338,34 @@ pub fn prompt_or_paste_with_reason(
                 type_and_submit(engine.herdr.as_ref(), pane_id, text)?,
                 InjectPath::Paste,
                 Some(error.message),
+                waited,
             ))
         }
     }
+}
+
+/// Polls the agent until it is `idle` or `done`, for at most `ready_wait`:
+/// `unknown` and `working` keep waiting, `blocked` stops (the blocked
+/// handling of the prompt applies). Returns the milliseconds waited.
+fn wait_for_idle(engine: &Engine, handle: &str) -> u64 {
+    let started = Instant::now();
+    let deadline = started + engine.ready_wait;
+    loop {
+        if let Ok(Some(agent)) = engine.herdr.agent_get(handle)
+            && matches!(
+                agent.status,
+                AgentStatus::Idle | AgentStatus::Done | AgentStatus::Blocked
+            )
+        {
+            break;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        std::thread::sleep(IDLE_POLL.min(left));
+    }
+    started.elapsed().as_millis() as u64
 }
 
 /// What the pane's agent input holds, when it can be read: `Some(Some)` is
@@ -615,6 +669,21 @@ pub fn inject_preamble(
     handle: &str,
     text: &str,
 ) -> Result<InputOutcome> {
+    inject_preamble_proved(engine, dispatch, handle, text, None)
+}
+
+/// `inject_preamble`; with `brief`, a prompt herdr reports submitted is
+/// proved against the agent's transcript, which must show a user turn naming
+/// that brief file. herdr's `agent_prompted` alone is not proof: a TUI that is
+/// still starting drops the typed text while the agent's own first turn makes
+/// herdr see `working` (seen live 2026-10-21).
+pub fn inject_preamble_proved(
+    engine: &Engine,
+    dispatch: &DispatchId,
+    handle: &str,
+    text: &str,
+    brief: Option<&Path>,
+) -> Result<InputOutcome> {
     // Two processes injecting at once could both see no record and both
     // type; the per-Dispatch lock makes the read-type-record one step.
     let path = engine
@@ -644,9 +713,9 @@ pub fn inject_preamble(
             "preamble input was already attempted".into(),
         ));
     }
-    let (outcome, path, prompt_error) = match worker.pane_id.as_deref() {
+    let (mut outcome, path, prompt_error, waited) = match worker.pane_id.as_deref() {
         Some(pane) => {
-            let (outcome, path, prompt_error) = prompt_or_paste_with_reason(
+            let (outcome, path, prompt_error, waited) = prompt_or_paste_waited(
                 engine,
                 handle,
                 pane,
@@ -654,14 +723,46 @@ pub fn inject_preamble(
                 Some(dispatch),
                 Patience::Launch,
             )?;
-            (outcome, Some(path), prompt_error)
+            (outcome, Some(path), prompt_error, waited)
         }
         None => (
             InputOutcome::Skipped("worker has no pane".into()),
             None,
             None,
+            None,
         ),
     };
+    let mut unproven = None;
+    if let (Some(brief), Some(InjectPath::Prompt), InputOutcome::Delivered) =
+        (brief, path, &outcome)
+    {
+        let kind = engine
+            .store
+            .read(|tx| crate::store::rows::dispatches::get(tx, dispatch))?
+            .and_then(|row| row.agent_kind);
+        match transcripts::wait_for_user_text(
+            engine,
+            dispatch,
+            kind.as_deref(),
+            &brief.display().to_string(),
+            engine.brief_proof_wait,
+        )? {
+            BriefProof::Seen => {}
+            BriefProof::Missing => {
+                outcome = InputOutcome::RenderedUnconfirmed;
+                unproven = Some(
+                    "herdr reported the brief submitted but the agent's transcript shows no \
+                     user turn containing it; the brief is never typed again; read the worker \
+                     and, if the input is empty, type the pointer sentence yourself"
+                        .to_owned(),
+                );
+            }
+            BriefProof::Unproven => engine.warn(format!(
+                "brief delivery unproven: no transcript for {}",
+                kind.as_deref().unwrap_or("unknown")
+            )),
+        }
+    }
     let now = engine.clock.now();
     engine.store.tx(|tx| {
         if let Some(row) = workers::get(tx, dispatch)?
@@ -673,13 +774,16 @@ pub fn inject_preamble(
                     .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
                     .unwrap_or_default();
                 effects.push(format!("inject:{}", path.as_str()));
+                if let Some(waited) = waited {
+                    effects.push(format!("preamble_waited_ms:{waited}"));
+                }
                 if let Some(reason) = prompt_error.as_deref() {
                     effects.push(format!("prompt_error:{reason}"));
                 }
                 workers::update_effects(tx, dispatch, Some(&serde_json::json!(effects)))?;
             }
             workers::update_preamble_input(tx, dispatch, Some(outcome.stored_name()))?;
-            if let Some(detail) = outcome.detail() {
+            if let Some(detail) = outcome.detail().or(unproven.as_deref()) {
                 workers::update_last_error(tx, dispatch, Some(detail))?;
             }
             workers::update_updated_at(tx, dispatch, now)?;
