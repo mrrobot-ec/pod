@@ -124,6 +124,9 @@ pub struct DispatchArgs {
 pub struct WorkerGcArgs {
     #[arg(long)]
     pub run: Option<String>,
+    /// Release retained workers too, as `worker-release` would.
+    #[arg(long)]
+    pub include_retained: bool,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -814,9 +817,13 @@ pub fn worker_release(ctx: &Ctx, args: DispatchIdArgs) -> Result<()> {
 pub fn worker_gc(ctx: &Ctx, args: WorkerGcArgs) -> Result<()> {
     let engine = ctx.engine()?;
     let run = args.run.as_deref().map(RunId::from_str).transpose()?;
-    let (receipt, replayed) = mutation(ctx, &engine, "worker-gc", &json!({"run": &run}), || {
-        lifecycle::gc(&engine, run.as_ref(), false)
-    })?;
+    let (receipt, replayed) = mutation(
+        ctx,
+        &engine,
+        "worker-gc",
+        &json!({"run": &run, "include_retained": args.include_retained}),
+        || lifecycle::gc(&engine, run.as_ref(), false, args.include_retained),
+    )?;
     let ok = receipt
         .released
         .iter()

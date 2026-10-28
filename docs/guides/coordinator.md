@@ -90,7 +90,7 @@ After an accepted `worker_done`, do exactly one of these for that worker before 
 | Choice | Command | Use when |
 |---|---|---|
 | Reuse | `pod worker-start --task <next> --terminal <handle>` | The next Task fits the same pane and agent context. Cleanup ownership moves to the new Dispatch. |
-| Retain | `pod worker-retain --dispatch <id>` | The pane should stay, for the user or for later. A reason is recorded. Its next Task comes through `pod worker-start --task <next> --terminal <handle>` or `pod dispatch --task <next> --to <handle>`; both type the brief into the pane and take over its cleanup. |
+| Retain | `pod worker-retain --dispatch <id>` | The pane should stay, for the user or for later. A reason is recorded. A later `pod worker-release` closes it like any other worker (`pod worker-gc --include-retained` sweeps old ones). Its next Task comes through `pod worker-start --task <next> --terminal <handle>` or `pod dispatch --task <next> --to <handle>`; both type the brief into the pane and take over its cleanup. |
 | Release | `pod worker-release --dispatch <id>` | Done with the pane. The final screen text is archived for every agent kind, then pod closes the worker's tab only if pod created it (only the worker's pane if a person split another pane into that tab). Safe to call again. |
 
 Reused, pre-existing, setup, coordinator, active, user-taken-over, and unproven panes are never closed by release. If the user closes a worker pane, it is user-owned from then on; a pane a person only types into is left alone until its input is bare (attention `interruption`).

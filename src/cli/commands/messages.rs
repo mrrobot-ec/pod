@@ -236,7 +236,7 @@ pub fn check(ctx: &Ctx, args: CheckArgs) -> Result<()> {
             && let Some(run) = mailbox.strip_prefix("run:")
         {
             released.extend(
-                engine::lifecycle::gc(&engine, Some(&RunId::from_str(run)?), true)?.released,
+                engine::lifecycle::gc(&engine, Some(&RunId::from_str(run)?), true, false)?.released,
             );
         }
         let (delivery, woke_on) = engine::waiting::check_wait_mailbox(

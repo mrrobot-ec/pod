@@ -911,7 +911,7 @@ fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
 
     // The pass `check --wait` runs releases only acknowledged reports; a
     // worker settled without one keeps its pane until a manual sweep.
-    let cautious = lifecycle::gc(&env.engine, Some(&run), true).unwrap();
+    let cautious = lifecycle::gc(&env.engine, Some(&run), true, false).unwrap();
     assert!(cautious.released.is_empty(), "{cautious:?}");
     assert!(
         cautious
@@ -921,7 +921,7 @@ fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
                 && row.reason == "report_not_acknowledged"),
         "{cautious:?}"
     );
-    let receipt = lifecycle::gc(&env.engine, Some(&run), false).unwrap();
+    let receipt = lifecycle::gc(&env.engine, Some(&run), false, false).unwrap();
     assert_eq!(receipt.run_id, run);
     assert_eq!(
         receipt
@@ -951,7 +951,7 @@ fn worker_gc_releases_every_reclaimable_worker_and_keeps_the_rest() {
     assert_eq!(kept_ids, expected);
 
     // A second sweep, on the bound Run by default, finds nothing to release.
-    let again = lifecycle::gc(&env.engine, None, false).unwrap();
+    let again = lifecycle::gc(&env.engine, None, false, false).unwrap();
     assert_eq!(again.run_id, run);
     assert!(again.released.is_empty(), "{again:?}");
     assert_eq!(again.kept.len(), 2);
@@ -1710,9 +1710,9 @@ fn lifecycle_mutations_write_each_event_once() {
     lifecycle::retain(&env.engine, &started.dispatch_id, "keep").unwrap();
     lifecycle::release(&env.engine, &started.dispatch_id).unwrap();
     lifecycle::release(&env.engine, &started.dispatch_id).unwrap();
-    // A repeated retain with the same reason marks nothing new, and a
-    // repeated release changes nothing, so each writes one event.
-    assert_eq!(count(&env, "worker.user_owned"), 1, "{:?}", types(&env));
+    // Retain is not a takeover, so it writes no event; a repeated release
+    // changes nothing, so it writes one.
+    assert_eq!(count(&env, "worker.user_owned"), 0, "{:?}", types(&env));
     assert_eq!(count(&env, "worker.released"), 1, "{:?}", types(&env));
 
     let failing = new_task(&env, &run, "fails");
@@ -3009,5 +3009,142 @@ fn acknowledging_a_report_releases_its_worker() {
     assert_eq!(
         worker_row(&env, &started.dispatch_id).terminal_state,
         "retained"
+    );
+}
+
+/// What the events of a Run recorded, by type.
+fn event_count(env: &TestEnv, run: &RunId, kind: &str) -> usize {
+    env.engine
+        .store
+        .read(|tx| pod::store::rows::events::list(tx, run))
+        .unwrap()
+        .iter()
+        .filter(|event| event.r#type == kind)
+        .count()
+}
+
+/// Seen live 2026-10-26: `worker-retain` marked the worker user-owned, so a
+/// later `worker-release` read it as a takeover and closed nothing; the pane,
+/// its tab and the spaces herdr opened stayed open. Retaining keeps a worker
+/// until it is released; it is not a takeover.
+#[test]
+fn retain_then_release_closes_the_pane_tab_and_spaces() {
+    let (env, run, task) = seeded();
+    let (_, linked) = linked_worktree(&env);
+    let mut start = input(task, run.clone());
+    start.worktree = Worktree::Path(linked);
+    let receipt = lifecycle::worker_start(&env.engine, start).unwrap();
+    let opened = opened_spaces(&env, &receipt.dispatch_id);
+    assert_eq!(opened.len(), 2, "{opened:?}");
+    for space in &opened {
+        env.herdr.set_workspace_shape(space, 1, 1, "unknown");
+    }
+    settle(&env, &receipt.dispatch_id);
+
+    let retained =
+        lifecycle::retain(&env.engine, &receipt.dispatch_id, "coordinator retained").unwrap();
+    assert_eq!(retained.worker.terminal_state, "retained");
+    assert!(!retained.worker.user_owned, "{retained:?}");
+    assert_eq!(retained.worker.user_owned_reason, None);
+    assert_eq!(
+        retained.worker.retained_reason.as_deref(),
+        Some("coordinator retained")
+    );
+    assert_eq!(event_count(&env, &run, "worker.user_owned"), 0);
+
+    let tab = worker_row(&env, &receipt.dispatch_id).tab_id.unwrap();
+    let released = lifecycle::release(&env.engine, &receipt.dispatch_id).unwrap();
+    assert_eq!(released.worker.terminal_state, "released");
+    assert_eq!(released.closed_tabs, [tab]);
+    let closing: Vec<String> = opened.iter().rev().cloned().collect();
+    assert_eq!(released.closed_workspaces, closing);
+    assert_eq!(env.herdr.closed_workspaces(), closing);
+    assert!(released.left_alone.is_empty(), "{released:?}");
+    assert!(!released.worker.user_owned);
+    assert_eq!(released.worker.user_owned_reason, None);
+    assert_eq!(event_count(&env, &run, "worker.user_owned"), 0);
+}
+
+/// A row retained by 0.2.10 or earlier carries `user_owned = 1` with the
+/// retained reason; it releases like any other retained worker.
+#[test]
+fn a_worker_retained_before_the_fix_releases_and_closes_its_tab() {
+    let (env, run, task) = seeded();
+    let start = lifecycle::worker_start(&env.engine, input(task, run)).unwrap();
+    settle(&env, &start.dispatch_id);
+    env.engine
+        .store
+        .tx(|tx| {
+            workers::update_terminal_state(tx, &start.dispatch_id, "retained")?;
+            workers::update_retained_reason(tx, &start.dispatch_id, Some("coordinator retained"))?;
+            workers::update_user_owned(tx, &start.dispatch_id, true, Some("coordinator retained"))
+        })
+        .unwrap();
+    let tab = worker_row(&env, &start.dispatch_id).tab_id.unwrap();
+    let released = lifecycle::release(&env.engine, &start.dispatch_id).unwrap();
+    assert_eq!(released.closed_tabs, [tab]);
+    assert!(released.left_alone.is_empty(), "{released:?}");
+    assert!(!released.worker.user_owned);
+    assert_eq!(released.worker.user_owned_reason, None);
+}
+
+/// A person closing the pane of a retained worker is still a takeover.
+#[test]
+fn a_pane_closed_outside_pod_stays_a_takeover_on_a_retained_worker() {
+    let (env, run, task) = seeded();
+    let start = lifecycle::worker_start(&env.engine, input(task, run)).unwrap();
+    settle(&env, &start.dispatch_id);
+    lifecycle::retain(&env.engine, &start.dispatch_id, "keep").unwrap();
+    let pane = worker_row(&env, &start.dispatch_id).pane_id.unwrap();
+    env.herdr.pane_close(&pane).unwrap();
+    let released = lifecycle::release(&env.engine, &start.dispatch_id).unwrap();
+    assert!(released.closed_tabs.is_empty());
+    assert_eq!(released.left_alone, ["user_taken_over"]);
+    assert_eq!(
+        released.worker.user_owned_reason.as_deref(),
+        Some("pane_closed_outside_pod")
+    );
+}
+
+/// `worker-stop` on a retained worker whose Dispatch is still active closes
+/// the pane: retaining is not a takeover.
+#[test]
+fn stop_closes_the_pane_of_a_retained_worker_whose_dispatch_is_active() {
+    let (env, run, task) = seeded();
+    let start = lifecycle::worker_start(&env.engine, input(task, run)).unwrap();
+    let pane = worker_row(&env, &start.dispatch_id).pane_id.unwrap();
+    lifecycle::retain(&env.engine, &start.dispatch_id, "keep").unwrap();
+    let stopped = lifecycle::stop(&env.engine, &start.dispatch_id).unwrap();
+    assert_eq!(stopped.closed_panes, [pane]);
+    assert_eq!(stopped.outcome, "stopped");
+}
+
+/// `worker-gc` keeps retained workers unless asked, and `--include-retained`
+/// releases them like any other finished worker.
+#[test]
+fn worker_gc_include_retained_releases_retained_workers() {
+    let (env, run, task) = seeded();
+    let retained = lifecycle::worker_start(&env.engine, input(task, run.clone())).unwrap();
+    settle(&env, &retained.dispatch_id);
+    lifecycle::retain(&env.engine, &retained.dispatch_id, "user reads it").unwrap();
+
+    let without = lifecycle::gc(&env.engine, Some(&run), false, false).unwrap();
+    assert!(without.released.is_empty(), "{without:?}");
+    assert_eq!(without.kept.len(), 1);
+    assert_eq!(without.kept[0].reason, "retained");
+    assert_eq!(
+        worker_row(&env, &retained.dispatch_id).terminal_state,
+        "retained"
+    );
+
+    let with = lifecycle::gc(&env.engine, Some(&run), false, true).unwrap();
+    assert!(with.kept.is_empty(), "{with:?}");
+    assert_eq!(with.released.len(), 1);
+    assert_eq!(with.released[0].dispatch_id, retained.dispatch_id);
+    assert_eq!(with.released[0].closed_tabs.len(), 1);
+    assert!(with.released[0].left_alone.is_empty());
+    assert_eq!(
+        worker_row(&env, &retained.dispatch_id).terminal_state,
+        "released"
     );
 }

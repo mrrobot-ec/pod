@@ -152,7 +152,8 @@ Observed against an isolated `herdr server` (own `HOME`,
     worker's pane gone while pod was neither stopping nor releasing it calls
     `lifecycle::pane_gone`, which marks the worker `user_owned`
     (`pane_closed_outside_pod`); a stop whose close was unconfirmed
-    becomes `stopped` instead (state machines W10). `worker-retain` marks it too.
+    becomes `stopped` instead (state machines W10). `worker-retain` does not
+    mark it: a retained worker is kept until released, not taken over.
     Stop and release never close a user-owned pane, and the worker stays
     `reclaimable` until `worker-release` accounts for it.
 11. **Scripted pi input.** On a real isolated 0.9.3

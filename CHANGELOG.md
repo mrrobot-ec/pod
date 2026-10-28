@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A retained worker is no longer marked user-owned, so `worker-release` closes its pane and tab and the spaces herdr opened for it, and `worker-stop` closes the pane of a retained worker whose Dispatch is still active. Before, a retain made release read a takeover and leave everything open (seen live 2026-10-26: 36 panes open with 14 finished agents). Workers retained by earlier versions release the same way, and the release clears their mark.
+
+### Added
+
+- `worker-gc --include-retained` releases retained workers too, exactly as `worker-release` would. `check --wait`'s acknowledged sweep still never releases a retained worker.
+
 ## [0.2.10] - 2026-10-16
 
 ### Fixed

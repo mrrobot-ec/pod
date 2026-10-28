@@ -996,8 +996,7 @@ fn assign_session(launch: &Launch) -> Option<String> {
 /// placement (`workspace_opened:<id>` effects, in order) carry over, so a
 /// later release of the new Dispatch closes what pod created. Returns the
 /// carried effects. A user takeover is permanent and
-/// carries too; retain's own mark (its reason equals the retained reason)
-/// does not.
+/// carries too; a retained worker is not taken over and carries nothing.
 fn carry_pane(
     tx: &crate::store::Tx<'_>,
     dispatch: &DispatchId,
@@ -1012,7 +1011,7 @@ fn carry_pane(
     workers::update_tab_id(tx, dispatch, old.tab_id.as_deref())?;
     workers::update_worktree_path(tx, dispatch, old.worktree_path.as_deref())?;
     workers::update_owns_pane(tx, dispatch, old.owns_pane)?;
-    if old.user_owned && old.user_owned_reason.as_deref() != old.retained_reason.as_deref() {
+    if taken_over(old) {
         workers::update_user_owned(tx, dispatch, true, old.user_owned_reason.as_deref())?;
     }
     let carried: Vec<String> = opened_workspaces_of(old)
@@ -1023,6 +1022,13 @@ fn carry_pane(
         workers::update_effects(tx, dispatch, Some(&json!(carried)))?;
     }
     Ok(carried)
+}
+
+/// True when a person took the pane over (spec 7.4). Before 0.2.11 `retain`
+/// also set `user_owned`, with the retained reason as its reason; such a row
+/// is only retained, so the two reasons being equal does not count.
+fn taken_over(worker: &workers::WorkerRow) -> bool {
+    worker.user_owned && worker.user_owned_reason != worker.retained_reason
 }
 
 fn carry_session(
@@ -1876,7 +1882,7 @@ fn finish_by_coordinator(
         // `dispatch --to` pane belongs to whoever opened it (spec 7.4).
         let closable = worker_before.pane_id.as_deref().filter(|pane| {
             worker_before.owns_pane
-                && !worker_before.user_owned
+                && !taken_over(&worker_before)
                 && worker_before.terminal_state != "released"
                 && Some(*pane) != coordinator_pane
         });
@@ -1970,7 +1976,6 @@ pub fn retain(engine: &Engine, dispatch: &DispatchId, reason: &str) -> Result<Wo
         reason
     };
     engine.store.tx(|tx| {
-        mark_user_owned(tx, engine.clock.now(), dispatch, reason)?;
         workers::update_terminal_state(tx, dispatch, "retained")?;
         workers::update_retained_reason(tx, dispatch, Some(reason))?;
         workers::update_updated_at(tx, dispatch, engine.clock.now())
@@ -2012,12 +2017,18 @@ pub struct GcKept {
 /// `release_pending`, or `release_unknown`, each exactly as `worker-release`
 /// would (spec 7.4): the final screen is archived and the tab closes only if
 /// pod created it. Retained workers are kept, since retain is a choice
-/// already made, and active ones are still working; both are listed with
-/// their reason. With `acknowledged_only`, the pass `check --wait` runs, a
+/// already made, unless `include_retained` releases them too; active ones
+/// are still working. Kept workers are listed with their reason. With
+/// `acknowledged_only`, the pass `check --wait` runs, a
 /// reclaimable worker is released only once the coordinator has acknowledged
 /// its `worker_done`, so a report nobody has read keeps its pane. Without
 /// `run` the Run bound to the caller's terminal is swept.
-pub fn gc(engine: &Engine, run: Option<&RunId>, acknowledged_only: bool) -> Result<GcReceipt> {
+pub fn gc(
+    engine: &Engine,
+    run: Option<&RunId>,
+    acknowledged_only: bool,
+    include_retained: bool,
+) -> Result<GcReceipt> {
     let run_id = match run {
         Some(run) => run.clone(),
         None => {
@@ -2055,6 +2066,7 @@ pub fn gc(engine: &Engine, run: Option<&RunId>, acknowledged_only: bool) -> Resu
             "reclaimable" | "release_pending" | "release_unknown" => {
                 released.push(release(engine, &dispatch)?);
             }
+            "retained" if include_retained => released.push(release(engine, &dispatch)?),
             "retained" | "active" => kept.push(GcKept {
                 dispatch_id: dispatch,
                 reason: state.clone(),
@@ -2128,7 +2140,7 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
     let caller_pane = engine.caller.as_ref().and_then(|c| c.pane_id.as_deref());
     let left_reason = if !worker.owns_pane {
         Some("pane_not_created_by_pod")
-    } else if worker.user_owned {
+    } else if taken_over(&worker) {
         Some("user_taken_over")
     } else if worker.pane_id.is_none() || worker.tab_id.is_none() {
         Some("no_worker_pane")
@@ -2182,9 +2194,15 @@ pub fn release(engine: &Engine, dispatch: &DispatchId) -> Result<WorkerReceipt> 
         }
     };
     let now = engine.clock.now();
+    // The mark a retain before 0.2.11 left is not a takeover; it goes with
+    // the release, so `worker-show` stops reporting it.
+    let clear_retain_mark = worker.user_owned && !taken_over(&worker);
     engine.store.tx(|tx| {
         workers::update_terminal_state(tx, dispatch, terminal_state)?;
         workers::update_updated_at(tx, dispatch, now)?;
+        if clear_retain_mark {
+            workers::update_user_owned(tx, dispatch, false, None)?;
+        }
         events::append(
             tx,
             &events::EventRow {
@@ -2456,7 +2474,7 @@ pub fn pane_closed_outside_pod(
         worker.terminal_state.as_str(),
         "release_pending" | "release_unknown" | "released"
     );
-    if worker.user_owned || pod_closed || worker.pane_id.is_none() {
+    if taken_over(&worker) || pod_closed || worker.pane_id.is_none() {
         return Ok(false);
     }
     mark_user_owned(tx, now, dispatch, "pane_closed_outside_pod")?;
